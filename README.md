@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/logo.png" alt="Last Night an AI Saved My Life" width="600">
+  <img src="assets/logo.png" alt="Last Night an AI Saved My Life">
 </div>
 
 # Last Night an AI Saved My Life
