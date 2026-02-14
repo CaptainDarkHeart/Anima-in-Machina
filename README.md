@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="assets/logo.png" alt="Last Night an AI Saved My Life" width="600">
+</div>
+
 # Last Night an AI Saved My Life
 
 A comprehensive knowledge base for deep space house DJing, created through collaboration between a human DJ and AI. This repository contains detailed track analysis, mixing techniques, label guides, and technical workflows for crafting hypnotic, journey-focused DJ sets.
