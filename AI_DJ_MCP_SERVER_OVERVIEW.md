@@ -121,12 +121,12 @@ ai-dj-mcp-server/
 4. Plan extended 60-90 second blends
 ```
 
-### For Mixxx Users
+### For Playlist Building
 ```
 1. Analyze tracks with Claude
 2. Export intro/outro markers
 3. Build smart playlists
-4. Use with AutoDJ or manual mixing
+4. Use for manual mixing planning
 ```
 
 ### For Journey Arc Planning
@@ -164,10 +164,10 @@ Build an AI system that:
 - Analyzes your 11,000+ track library
 - Understands deep space house aesthetics
 - Plans journey arcs based on your philosophy
-- Generates smart playlists for Mixxx
+- Generates smart playlists for Traktor
 
-### Phase 3: Mixxx Controller Integration
-Create JavaScript controller that:
+### Phase 3: Traktor MIDI Controller Integration
+Create Python MIDI controller that:
 - Receives instructions from the AI
 - Executes 60-90 second extended blends
 - Beatmatches automatically
@@ -257,9 +257,9 @@ Mixing Strategy:
 
 ### Built On
 - **[AI-DJ-Mix-Generator](https://github.com/sycomix/AI-DJ-Mix-Generator)** - LSTM cue detection
-- **[Mixxx](https://github.com/mixxxdj/mixxx)** - Open-source DJ software research
 - **[librosa](https://librosa.org/)** - Audio analysis library
 - **[Model Context Protocol](https://modelcontextprotocol.io/)** - MCP SDK
+- **[mido](https://mido.readthedocs.io/)** - MIDI control for Traktor automation
 
 ### Your Deep Space House Philosophy
 - 60-90 second extended blends
