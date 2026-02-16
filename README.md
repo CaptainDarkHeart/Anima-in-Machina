@@ -1,8 +1,8 @@
 <div align="center">
-  <img src="assets/logo.png" alt="Last Night an AI Saved My Life">
+  <img src="assets/logo.png" alt="Anima-in-Machina">
 </div>
 
-# Last Night an AI Saved My Life
+# Anima-in-Machina
 
 A comprehensive knowledge base for deep space house DJing, created through collaboration between a human DJ and AI. This repository contains detailed track analysis, mixing techniques, label guides, and technical workflows for crafting hypnotic, journey-focused DJ sets.
 
@@ -89,10 +89,11 @@ This dataset represents:
 
 ## The Story Behind This Repository
 
-The title "Last Night an AI Saved My Life" references:
+The title "Anima-in-Machina" references:
 - The collaborative nature of this knowledge base (human expertise + AI analysis)
 - The deep house classic "A Guy Called Gerald - Voodoo Ray" and its spiritual descendants
 - The idea that technology and humanity can create something greater together
+- The soul (anima) within the machine - where human artistry meets artificial intelligence
 
 This project emerged from Claude.ai Project sessions where Dan, a DJ with an 11,000+ track collection focused on deep house, tech house, progressive, and dub techno, collaborated with Claude (Anthropic's AI) to:
 - Correct BPM detection errors in Traktor (half-time detection issues)
