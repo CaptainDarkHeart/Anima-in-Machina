@@ -1,0 +1,16 @@
+{
+  "playlist": "best-of-deep-dub-tech-house-ai-ordered",
+  "tracks": [
+    {
+      "title": "Amazonas Santiago (Riccicomoto Para Dub)",
+      "file": "Amazonas Santiago (Riccicomoto Para Dub).m4a",
+      "cues": [
+        {"name": "Start", "time_seconds": 0.1, "hotcue": 1, "notes": "Manually placed by user"},
+        {"name": "Breakdown", "time_seconds": 196.8, "hotcue": 2, "notes": "3:16.8 - Manually placed by user"},
+        {"name": "Groove Loop", "time_seconds": 224.3, "hotcue": 3, "notes": "3:44.3 - Manually placed by user"},
+        {"name": "Outro mix", "time_seconds": 369.9, "hotcue": 4, "notes": "6:09.9 - Manually placed by user"}
+      ]
+    }
+  ],
+  "notes": "Manual cue placements by expert DJ - ground truth for training audio analysis"
+}

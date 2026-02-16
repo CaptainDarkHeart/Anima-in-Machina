@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Optional, Dict, List
 import mido
 from mido import Message
+from audio_analyzer import AudioAnalyzer
 
 
 class TraktorAIDJ:
@@ -59,6 +60,10 @@ class TraktorAIDJ:
         # Configuration
         self.blend_duration = 75  # seconds (60-90 for deep space house)
         self.monitor_interval = 0.1  # Check every 100ms
+
+        # Audio analysis
+        self.audio_analyzer = AudioAnalyzer()
+        self.track_analyses: Dict[int, Dict] = {}  # Cache analyzed tracks
 
         # MIDI Control Change numbers (will be configured in Traktor mapping)
         self.MIDI_CC = {
@@ -149,8 +154,14 @@ class TraktorAIDJ:
             msg = Message('control_change', control=control, value=value, channel=channel)
             self.output_port.send(msg)
 
-    def load_playlist(self, playlist_path: str):
-        """Load playlist JSON from Track Selection Engine."""
+    def load_playlist(self, playlist_path: str, analyze_audio: bool = True):
+        """
+        Load playlist JSON from Track Selection Engine.
+
+        Args:
+            playlist_path: Path to playlist JSON
+            analyze_audio: Whether to pre-analyze all tracks (recommended)
+        """
         self.log(f"Loading playlist: {playlist_path}")
 
         with open(playlist_path, 'r') as f:
@@ -158,8 +169,28 @@ class TraktorAIDJ:
 
         self.total_tracks = len(self.playlist['tracks'])
         self.log(f"✓ Loaded {self.total_tracks} tracks")
-        self.log(f"  Playlist: {self.playlist['metadata']['name']}")
-        self.log(f"  Duration: {self.playlist['metadata']['total_duration_minutes']:.1f} minutes")
+        self.log(f"  Playlist: {self.playlist['name']}")
+
+        # Calculate total duration from journey_arc if available
+        if 'journey_arc' in self.playlist and 'duration_minutes' in self.playlist['journey_arc']:
+            self.log(f"  Duration: {self.playlist['journey_arc']['duration_minutes']:.1f} minutes")
+
+        # Pre-analyze all tracks for intelligent mixing
+        if analyze_audio:
+            self.log(f"\n🎵 Pre-analyzing {self.total_tracks} tracks...")
+            self.log("This may take a few minutes but will enable smart mixing.\n")
+
+            for i in range(self.total_tracks):
+                track = self.playlist['tracks'][i]
+                self.log(f"[{i+1}/{self.total_tracks}] {track['artist']} - {track['title']}")
+
+                analysis = self.analyze_track(i)
+
+                if not analysis:
+                    self.log(f"  ⚠ Skipped (file not found)")
+                    continue
+
+            self.log(f"\n✓ Analysis complete! Ready for intelligent mixing.\n")
 
     def navigate_to_track(self, track_index: int):
         """Navigate to a specific track in Traktor's browser."""
@@ -167,6 +198,41 @@ class TraktorAIDJ:
         # and calculate how many up/down commands to send
         self.log(f"Navigating to track {track_index + 1}...")
         # For now, just log - full implementation would send track_up/down CCs
+
+    def analyze_track(self, track_index: int) -> Optional[Dict]:
+        """
+        Analyze a track if not already analyzed.
+
+        Returns the analysis or None if track file not found.
+        """
+        if track_index in self.track_analyses:
+            return self.track_analyses[track_index]
+
+        track = self.playlist['tracks'][track_index]
+        file_path = track.get('file_path')
+
+        if not file_path or not Path(file_path).exists():
+            self.log(f"⚠ Audio file not found: {file_path}")
+            return None
+
+        self.log(f"🎵 Analyzing audio: {track['artist']} - {track['title']}")
+        analysis = self.audio_analyzer.analyze_track(file_path)
+        self.track_analyses[track_index] = analysis
+
+        # Log interesting findings
+        self.log(f"  ✓ Detected BPM: {analysis['tempo']['bpm']:.1f} (confidence: {analysis['tempo']['confidence']:.1%})")
+        self.log(f"  ✓ Key: {analysis['harmony']['full_key']} (confidence: {analysis['harmony']['confidence']:.1%})")
+        self.log(f"  ✓ Energy: {analysis['energy']['overall']:.2f}")
+
+        # Log cue points
+        cue_points = analysis['cue_points']
+        if 'breakdown' in cue_points:
+            bd = cue_points['breakdown']
+            self.log(f"  ✓ Breakdown found: {bd['start']:.1f}s - {bd['end']:.1f}s ({bd['duration']:.1f}s)")
+        if 'drop' in cue_points:
+            self.log(f"  ✓ Drop at: {cue_points['drop']['time']:.1f}s")
+
+        return analysis
 
     def load_track_to_deck(self, track_index: int, deck: int):
         """Load a track from the playlist to a deck."""
@@ -182,6 +248,19 @@ class TraktorAIDJ:
         self.log(f"Loading track {track_index + 1}/{self.total_tracks} to Deck {deck}")
         self.log(f"  → {track['artist']} - {track['title']}")
         self.log(f"  → {track['bpm']} BPM | Energy: {track['energy_level']}")
+
+        # Analyze track audio if not already done
+        analysis = self.analyze_track(track_index)
+
+        if analysis:
+            # Update track duration from analysis
+            self.track_duration = analysis['duration']
+
+            # Log verified BPM vs metadata BPM
+            detected_bpm = analysis['tempo']['bpm']
+            metadata_bpm = track['bpm']
+            if abs(detected_bpm - metadata_bpm) > 2:
+                self.log(f"  ⚠ BPM mismatch: metadata={metadata_bpm}, detected={detected_bpm:.1f}")
 
         # Navigate to track in browser (simplified)
         self.navigate_to_track(track_index)
@@ -251,6 +330,56 @@ class TraktorAIDJ:
         self.is_transitioning = False
         self.log(f"✓ Crossfade complete")
 
+    def calculate_intelligent_blend(self, current_track_index: int, next_track_index: int) -> Dict:
+        """
+        Calculate intelligent blend timing based on audio analysis.
+
+        Returns dict with blend_duration, mix_out_time, mix_in_time
+        """
+        current_analysis = self.track_analyses.get(current_track_index)
+        next_analysis = self.track_analyses.get(next_track_index)
+
+        # Default blend
+        blend = {
+            'duration': self.blend_duration,
+            'mix_out_time': None,  # Time in current track to start blend
+            'mix_in_time': 0.0,    # Time in next track to start playing from
+        }
+
+        if not current_analysis or not next_analysis:
+            self.log("  ⚠ Using default blend (no audio analysis)")
+            return blend
+
+        # Get optimal mix points from audio analysis
+        mix_out_time = self.audio_analyzer.get_mix_out_point(current_analysis)
+        mix_in_time = self.audio_analyzer.get_mix_in_point(next_analysis)
+
+        # Check track compatibility
+        compatibility = self.audio_analyzer.are_tracks_compatible(current_analysis, next_analysis)
+
+        self.log(f"  🎯 Mix compatibility: {compatibility['score']:.0f}/100")
+        if compatibility['reasons']:
+            for reason in compatibility['reasons']:
+                self.log(f"     • {reason}")
+
+        # Adjust blend duration based on compatibility
+        if compatibility['score'] < 50:
+            # Rough transition - shorter blend
+            blend['duration'] = 30
+            self.log(f"  ⚡ Using shorter blend (30s) due to incompatibility")
+        elif compatibility['score'] > 80:
+            # Perfect match - longer blend
+            blend['duration'] = 90
+            self.log(f"  ✨ Using extended blend (90s) for perfect match")
+
+        blend['mix_out_time'] = mix_out_time
+        blend['mix_in_time'] = mix_in_time
+
+        self.log(f"  📍 Mix out at: {mix_out_time:.1f}s")
+        self.log(f"  📍 Mix in at: {mix_in_time:.1f}s")
+
+        return blend
+
     def start_transition(self, next_track_index: int):
         """Start transition to next track."""
         if self.is_transitioning:
@@ -260,8 +389,16 @@ class TraktorAIDJ:
         self.log(f"TRANSITION {self.current_track_index + 1} → {next_track_index + 1}")
         self.log(f"{'='*60}")
 
+        # Calculate intelligent blend timing
+        blend = self.calculate_intelligent_blend(self.current_track_index, next_track_index)
+
         # Load next track to inactive deck
         self.load_track_to_deck(next_track_index, self.next_deck)
+
+        # TODO: If mix_in_time > 0, we need to set a cue point and start from there
+        # For now, we'll just log it as future work
+        if blend['mix_in_time'] > 0:
+            self.log(f"  ⏭ TODO: Start next track from {blend['mix_in_time']:.1f}s (cue point)")
 
         # Enable sync on next deck
         self.enable_sync(self.next_deck)
@@ -269,8 +406,8 @@ class TraktorAIDJ:
         # Start playing next deck
         self.play_deck(self.next_deck)
 
-        # Execute crossfade
-        self.execute_crossfade(self.blend_duration, self.active_deck, self.next_deck)
+        # Execute crossfade with intelligent duration
+        self.execute_crossfade(blend['duration'], self.active_deck, self.next_deck)
 
         # Swap active/next decks
         self.active_deck, self.next_deck = self.next_deck, self.active_deck

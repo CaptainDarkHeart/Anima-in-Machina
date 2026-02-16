@@ -1,0 +1,11 @@
+# MIDI control
+mido==1.3.0
+python-rtmidi==1.5.8
+
+# Audio analysis
+librosa==0.10.1
+numpy==1.24.3
+scipy==1.11.4
+
+# Optional: for faster audio loading
+soundfile==0.12.1
