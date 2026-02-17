@@ -107,8 +107,9 @@ class HybridAnalyzer:
         tempo, beat_frames = librosa.beat.beat_track(y=self.audio, sr=self.sr)
         self.beat_times = librosa.frames_to_time(beat_frames, sr=self.sr)
         self.beats = beat_frames
+        self.tempo = float(tempo) if hasattr(tempo, '__iter__') else tempo
 
-        print(f"  Tempo: {tempo:.1f} BPM")
+        print(f"  Tempo: {self.tempo:.1f} BPM")
         print(f"  Beats detected: {len(self.beat_times)}")
 
     def _analyze_stripes(self):
