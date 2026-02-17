@@ -53,9 +53,10 @@ def main():
     writer.load()
 
     # Process all files
+    # IMPORTANT: replace_existing=False to preserve user's manual cue points!
     successful, failed = writer.batch_add_cue_points(
         analysis_files,
-        replace_existing=True
+        replace_existing=False  # DO NOT DELETE existing cue points!
     )
 
     # Save

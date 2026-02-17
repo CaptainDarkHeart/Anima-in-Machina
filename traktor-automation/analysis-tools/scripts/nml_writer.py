@@ -154,7 +154,7 @@ class NMLWriter:
         self,
         audio_file: Path,
         cue_points: List[Dict],
-        replace_existing: bool = True,
+        replace_existing: bool = False,
         keep_autogrid: bool = True
     ) -> bool:
         """
@@ -163,8 +163,8 @@ class NMLWriter:
         Args:
             audio_file: Path to the audio file
             cue_points: List of cue point dictionaries from hybrid analyzer
-            replace_existing: If True, replaces existing cue points
-            keep_autogrid: If True, keeps the AutoGrid cue point
+            replace_existing: If True, replaces existing cue points (DANGEROUS - will delete user cue points!)
+            keep_autogrid: If True, keeps the AutoGrid cue point (only applies if replace_existing=True)
 
         Returns:
             True if successful, False otherwise
@@ -179,8 +179,10 @@ class NMLWriter:
             print(f"  ❌ Track not found in NML: {audio_file.name}")
             return False
 
-        # Remove existing cues if requested
+        # WARNING: DO NOT remove existing cues unless explicitly requested
+        # This would delete user's manually placed cue points and Traktor's Floating Cue Point!
         if replace_existing:
+            print(f"  ⚠️  WARNING: Removing existing cue points from {audio_file.name}")
             self.remove_existing_cues(entry, keep_autogrid=keep_autogrid)
 
         # Traktor cue type mapping
@@ -244,14 +246,17 @@ class NMLWriter:
     def batch_add_cue_points(
         self,
         analysis_files: List[Path],
-        replace_existing: bool = True
+        replace_existing: bool = False
     ):
         """
         Batch add cue points from multiple analysis JSON files.
 
+        IMPORTANT: Default is replace_existing=False to preserve user's manual cue points
+        and Traktor's Floating Cue Point!
+
         Args:
             analysis_files: List of paths to analysis JSON files
-            replace_existing: If True, replaces existing cue points
+            replace_existing: If True, replaces existing cue points (DANGEROUS!)
         """
         import json
 
