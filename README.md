@@ -13,26 +13,27 @@ A comprehensive knowledge base for deep space house DJing, created through colla
 ### Project Context
 - **[CONTEXT.md](CONTEXT.md)** - Complete background on the project, Dan's 11,000+ track collection, workflow evolution, and human-AI collaboration model
 
-### Track Analysis
-- **[Best of Deep Dub Tech House - Complete Analysis](Best_of_Deep_Dub_Tech_House_FINAL.md)** - Deep dive into a 30-track collection with BPM corrections, key relationships, mixing strategies, and pre-planned journey arcs
-- **[Music Library Clean](Music_Library_Clean.md)** - Organized music collection management
+### Music Library
+- **[Best of Deep Dub Tech House - Complete Analysis](docs/dj-reference/Best_of_Deep_Dub_Tech_House_FINAL.md)** - Deep dive into a 30-track collection with BPM corrections, key relationships, mixing strategies, and pre-planned journey arcs
+- **[Detailed Music List](docs/music-library/Detailed_Music_List.md)** - 11,000+ track collection organized by BPM and genre
+- **[Music Library Clean](docs/music-library/Music_Library_Clean.md)** - Organized music collection management
 
-### Reference Guides
-- **[Label Guide](LABEL_GUIDE.md)** - Detailed profiles of core deep space house labels (Lucidflow, Echocord, Styrax, Plastic City, and more) with mixing compatibility matrices
-- **[Artist Profiles](ARTIST_PROFILES.md)** - In-depth artist information and signature sounds
-- **[Texture Reference](TEXTURE_REFERENCE.md)** - Sound design and textural elements guide
+### DJ Reference Guides
+- **[Label Guide](docs/dj-reference/LABEL_GUIDE.md)** - Detailed profiles of core deep space house labels (Lucidflow, Echocord, Styrax, Plastic City, and more) with mixing compatibility matrices
+- **[Artist Profiles](docs/dj-reference/ARTIST_PROFILES.md)** - In-depth artist information and signature sounds
+- **[Texture Reference](docs/dj-reference/TEXTURE_REFERENCE.md)** - Sound design and textural elements guide
+- **[Transition Techniques](docs/dj-reference/TRANSITION_TECHNIQUES.md)** - Detailed methods for smooth, atmospheric transitions
+- **[Example Journey Arcs](docs/dj-reference/EXAMPLE_JOURNEY_ARCS.md)** - Sample set structures from ambient openings to peak moments
 
-### Technical Setup
-- **[Traktor Setup Guide](TRAKTOR_SETUP_GUIDE.md)** - Complete Traktor Pro configuration optimized for extended blends, effect routing, cue point systems, and loop management
-- **[Traktor Automation Analysis](TRAKTOR_AUTOMATION_ANALYSIS.md)** - Advanced workflow automation strategies
-
-### Mixing Techniques
-- **[Transition Techniques](TRANSITION_TECHNIQUES.md)** - Detailed methods for smooth, atmospheric transitions
-- **[Example Journey Arcs](EXAMPLE_JOURNEY_ARCS.md)** - Sample set structures from ambient openings to peak moments
-- **[Loop Library Template](LOOP_LIBRARY_TEMPLATE.md)** - Framework for cataloging loop-worthy sections
+### Technical Documentation
+- **[Traktor Setup Guide](docs/technical/TRAKTOR_SETUP_GUIDE.md)** - Complete Traktor Pro configuration optimized for extended blends, effect routing, cue point systems, and loop management
+- **[Traktor Automation Analysis](docs/technical/TRAKTOR_AUTOMATION_ANALYSIS.md)** - Advanced workflow automation strategies
+- **[AI DJ MCP Server Overview](docs/technical/AI_DJ_MCP_SERVER_OVERVIEW.md)** - Model Context Protocol integration for AI-powered DJ assistance
+- **[Track Selection Engine](docs/technical/LAYER_3_COMPLETE.md)** - Intelligent playlist generation using deep space house philosophy
 
 ### Templates
-- **[Tracklist Template](TRACKLIST_TEMPLATE.md)** - Standardized format for documenting DJ sets
+- **[Tracklist Template](docs/templates/TRACKLIST_TEMPLATE.md)** - Standardized format for documenting DJ sets
+- **[Loop Library Template](docs/templates/LOOP_LIBRARY_TEMPLATE.md)** - Framework for cataloging loop-worthy sections
 
 ## Philosophy
 
@@ -70,10 +71,10 @@ Multiple 2-hour set structures mapped out with exact track sequences, timestamps
 ## How to Use This Repository
 
 ### For DJs
-1. Start with the [Label Guide](LABEL_GUIDE.md) to understand the deep space house ecosystem
-2. Review the [Traktor Setup Guide](TRAKTOR_SETUP_GUIDE.md) to optimize your technical workflow
-3. Study the [Best of Deep Dub Tech House Analysis](Best_of_Deep_Dub_Tech_House_FINAL.md) to see detailed track preparation in action
-4. Use the [Transition Techniques](TRANSITION_TECHNIQUES.md) to expand your mixing vocabulary
+1. Start with the [Label Guide](docs/dj-reference/LABEL_GUIDE.md) to understand the deep space house ecosystem
+2. Review the [Traktor Setup Guide](docs/technical/TRAKTOR_SETUP_GUIDE.md) to optimize your technical workflow
+3. Study the [Best of Deep Dub Tech House Analysis](docs/dj-reference/Best_of_Deep_Dub_Tech_House_FINAL.md) to see detailed track preparation in action
+4. Use the [Transition Techniques](docs/dj-reference/TRANSITION_TECHNIQUES.md) to expand your mixing vocabulary
 
 ### For Music Lovers
 - The track analysis demonstrates how to listen deeply to electronic music
@@ -143,11 +144,11 @@ Additional labels in the broader collection:
 - Model Context Protocol (MCP) integration potential for enhanced automation
 
 ### Automated Cue Point System
-- **[Stripes Analysis Documentation](docs/stripes-analysis.md)** - Deep dive into Traktor's stripes file format
+- **[Stripes Analysis Documentation](traktor-automation/analysis-tools/docs/stripes-analysis.md)** - Deep dive into Traktor's stripes file format
 - **Librosa-based audio analysis** for beat detection, tempo analysis, and onset detection
 - **Stripes-based structural analysis** for breakdown, build-up, and drop detection
 - **Hybrid approach** combining both systems for intelligent cue point placement
-- **Python automation scripts** for batch processing entire libraries
+- **[Python automation scripts](traktor-automation/analysis-tools/scripts/)** for batch processing entire libraries
 
 ## Contributing
 
