@@ -211,18 +211,11 @@ Open `Deep-Space-Journey-180min.json`:
 
 If needed, reorder tracks in JSON or regenerate with different parameters.
 
-### Step 3: Test in DJ Software
+### Step 3: Test in Traktor
 
-**For Mixxx:**
-1. Open Mixxx
-2. Import `Deep-Space-Journey-180min.m3u`
-3. Load to AutoDJ or play manually
-4. Test transitions
-
-**For Traktor:**
-1. Load tracks manually
-2. Use transition times to set cue points
-3. Practice the mix
+1. Import the M3U into Traktor (Browser → Right-click → Import Playlist)
+2. Use `deep_house_cue_writer.py --playlist ...` to write cue points
+3. Restart Traktor, load the playlist, test the transitions
 
 ---
 
@@ -230,11 +223,12 @@ If needed, reorder tracks in JSON or regenerate with different parameters.
 
 ### Preparation Checklist
 
-- [ ] All tracks loaded in DJ software
-- [ ] Cue points set (intro/outro)
-- [ ] Beat grids verified
+- [ ] Playlist imported into Traktor
+- [ ] Cue points written via `deep_house_cue_writer.py` (or MCP server)
+- [ ] Traktor restarted to load new cues
+- [ ] Beat grids verified in Traktor
 - [ ] Transition notes reviewed
-- [ ] Backup playlist ready
+- [ ] `traktor_ai_dj.py` MIDI connection tested
 
 ### During the Mix
 
@@ -302,30 +296,23 @@ Generate playlists from each, then combine manually.
 
 ## Integration with Full System
 
-### Layer 1: Knowledge Base (Completed)
-Your documented deep space house philosophy guides the engine.
+### Knowledge Base (`docs/`)
+The deep space house philosophy documented in `docs/` guides the engine's energy progressions, key preferences, and label aesthetics.
 
-### Layer 2: AI DJ MCP Server (Completed)
-Use Claude to analyze tracks before adding to library:
+### AI DJ MCP Server (`ai-dj-mcp-server/`)
+Use Claude to check Traktor's analysis before updating library metadata:
 
 ```
-Analyze these 10 tracks:
-1. /Music/Track1.wav
-2. /Music/Track2.wav
-...
-
-For each, provide:
-- BPM
-- Suggested key
-- Energy level (1-10)
-- Cue points
+Get track info for "Stimming - Una Pena.m4a"
 ```
 
-### Layer 3: Track Selection Engine (Current)
+Then update the library JSON with BPM, key, and cue positions from Traktor.
+
+### Track Selection Engine (this directory)
 Generate intelligent playlists following your philosophy.
 
-### Layer 4: Mixxx Controller (Future)
-Automatically execute the generated playlists in Mixxx.
+### Traktor MIDI Automation (`traktor-automation/`)
+`traktor_ai_dj.py` reads `best-of-deep-dub-tech-house-ai-ordered.json` and executes the mix via MIDI.
 
 ---
 
@@ -337,13 +324,15 @@ track-selector create /Music/Deep-Space-House \
   --library my-collection.json
 ```
 
-### 2. Analyze Key Tracks with Claude (Using Layer 2)
+### 2. Get Traktor analysis with Claude
 ```
-Analyze these 20 Lucidflow tracks and provide energy levels and cue points
+Get track info for "Nadja Lind - Spherical.m4a"
 ```
 
+Use `get_track_info` for each key track to fetch BPM and Camelot key from collection.nml.
+
 ### 3. Update Library JSON
-Add Claude's analysis to library file.
+Add Traktor's BPM/key data to the library file.
 
 ### 4. Generate Playlist
 ```bash
@@ -418,8 +407,8 @@ Follow the journey arc, using the generated transitions as your guide.
 1. ✅ Build your library
 2. ✅ Generate first test playlist
 3. ✅ Review and refine
-4. ✅ Test in DJ software
-5. ⏭️ Build Layer 4 (Mixxx automation)
+4. ✅ Import into Traktor, write cue points
+5. ✅ Run `traktor_ai_dj.py` for full automation
 
 ---
 

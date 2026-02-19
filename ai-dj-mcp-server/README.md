@@ -1,115 +1,127 @@
 # AI DJ MCP Server
 
-A Model Context Protocol (MCP) server that provides AI-powered DJ mixing capabilities to Claude and other AI assistants.
+An MCP server that exposes Traktor Pro 3 analysis data and cue-point writing to Claude. Traktor's own analysis (BPM, beatgrid, key, loudness) is the primary source of truth; librosa is an optional enhancement for breakdown detection.
 
-## Features
+## Architecture
 
-### Core Tools
+```
+Claude ←─ MCP ─→ AI DJ MCP Server
+                        │
+               ┌────────┴────────┐
+               ↓                 ↓
+        collection.nml      librosa (optional)
+        (primary source)    (energy envelope,
+        BPM, key,           breakdown detection)
+        beatgrid, cues
+```
 
-- **`analyze_track`** - Comprehensive audio analysis including BPM, beats, downbeats, and musical features
-- **`detect_cue_points`** - AI-powered cue point detection using LSTM neural networks
-- **`suggest_transitions`** - Intelligent transition suggestions between tracks based on BPM, key, and energy
-- **`extract_features`** - Extract 24-dimensional feature vectors (MFCC, spectral analysis)
-- **`normalize_tempo`** - Pitch-preserving time stretching to match BPM across tracks
+**Data hierarchy:**
+- **PRIMARY** — Traktor's analysis in `collection.nml` (BPM, beatgrid anchor, Camelot key, loudness, existing cues)
+- **SECONDARY** — librosa on raw audio (energy envelope, BPM cross-check, breakdown detection)
 
-### Planned Tools
+Never re-derive BPM from audio when the NML has it.
 
-- **`generate_mix`** - Automated mix generation from multiple tracks
-- **`detect_energy_curve`** - Analyze energy progression throughout a track
-- **`find_compatible_tracks`** - Search for tracks compatible with a given track
+## Tools
+
+| Tool | Description |
+|------|-------------|
+| `get_track_info` | Read Traktor analysis from collection.nml — fast, no audio loading |
+| `suggest_cue_points` | Calculate bar-snapped cue positions and write to collection.nml |
+| `write_cue_points` | Write exact cue positions manually to collection.nml |
+| `suggest_transition` | BPM + Camelot key compatibility and EQ transition strategy |
+| `analyze_library_track` | Full analysis: Traktor NML data + librosa BPM cross-check + breakdown |
+
+### Cue slot layout
+
+| Slot | Name | Description |
+|------|------|-------------|
+| 1 | — | Always protected (never written) |
+| 2 | Beat | First bar of the intro |
+| 3 | Breakdown | Structural breakdown start |
+| 4 | Groove | 32-bar saved loop in the groove pocket |
+| 5 | End | Mix-out marker (~32 bars before end) |
+
+### Cue position logic
+
+All positions are snapped to bar boundaries using Traktor's BPM and beatgrid anchor:
+
+- **Beat** — bar boundary nearest 10% of track duration
+- **Groove** — bar boundary nearest 35%, with 32-bar loop
+- **Breakdown** — bar boundary nearest 65%, or librosa-detected lowest-energy 30s window in the 40–80% zone (if `audio_path` provided)
+- **End** — 32 bars before end
+
+Bar arithmetic: `bar_ms = 4 × (60000 / bpm)`
 
 ## Installation
 
 ### Prerequisites
 
-- Python 3.10 or higher
-- ffmpeg (for audio processing)
+- Python 3.10+
+- Traktor Pro 3 (tracks must be analysed — beatgrid required for cue writing)
 
-### Setup
+### Install
 
-1. Clone this repository or navigate to the `ai-dj-mcp-server` directory
-
-2. Install dependencies:
 ```bash
+cd ai-dj-mcp-server
 pip install -e .
 ```
 
-3. For development:
-```bash
-pip install -e ".[dev]"
-```
+librosa is included as a dependency but only used when `audio_path` is supplied to `suggest_cue_points` or `analyze_library_track`.
 
-### Install as MCP Server in Claude Desktop
+### Configure Claude Desktop
 
-Add to your Claude Desktop configuration file:
-
-**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-
-**Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+`~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "ai-dj": {
-      "command": "python",
-      "args": [
-        "-m",
-        "ai_dj_mcp.server"
-      ],
-      "cwd": "/path/to/ai-dj-mcp-server/src"
+      "command": "python3",
+      "args": ["-m", "ai_dj_mcp"],
+      "cwd": "/Users/dantaylor/Claude/Anima-in-Machina/ai-dj-mcp-server/src"
     }
   }
 }
 ```
 
-Replace `/path/to/ai-dj-mcp-server/src` with the actual absolute path.
+Restart Claude Desktop after editing the config.
 
-## Usage
+## NML path
 
-Once installed, Claude can use the tools to analyze tracks:
+The server reads from the default Traktor 3.11.1 location:
 
 ```
-Analyze the BPM and cue points for my-track.wav
+~/Documents/Native Instruments/Traktor 3.11.1/collection.nml
 ```
 
-Claude will use the MCP tools to:
-1. Load the audio file
-2. Detect beats and downbeats
-3. Calculate BPM
-4. Extract features
-5. Use LSTM model to predict optimal cue points
-6. Return analysis results
+A timestamped backup is created automatically before every write:
 
-## Architecture
-
-Built on top of AI-DJ-Mix-Generator algorithms:
-- **Beat Detection**: madmom library (neural network-based)
-- **Feature Extraction**: librosa (MFCC, spectral analysis)
-- **Cue Point Detection**: LSTM neural network
-- **Tempo Normalization**: pyrubberband (pitch-preserving)
-- **MCP Integration**: mcp Python SDK
-
-## Development
-
-### Running Tests
-
-```bash
-pytest
+```
+collection_backup_YYYYMMDD_HHMMSS.nml
 ```
 
-### Code Formatting
+**Always restart Traktor after writing cues** — Traktor only reads the NML at startup.
 
-```bash
-black src/
-ruff check src/
+## Supported audio formats (librosa)
+
+WAV, AIFF, MP3, M4A/AAC, FLAC. For m4a tracks (common in Traktor libraries), audio is loaded at 22050 Hz mono for speed.
+
+## Source files
+
 ```
-
-## Credits
-
-Based on research from:
-- [AI-DJ-Mix-Generator](https://github.com/sycomix/AI-DJ-Mix-Generator)
-- [madmom](https://github.com/CPJKU/madmom) - Beat detection library
-
-## License
-
-MIT License
+ai-dj-mcp-server/
+├── pyproject.toml
+├── requirements.txt
+├── README.md
+├── INSTALLATION.md
+├── QUICK_REFERENCE.md
+├── USAGE_EXAMPLES.md
+├── PROJECT_SUMMARY.md
+└── src/
+    └── ai_dj_mcp/
+        ├── __init__.py         # Version (0.2.0)
+        ├── __main__.py         # Entry point
+        ├── nml_reader.py       # NML parsing, Camelot logic, cue writing
+        ├── traktor_track.py    # TraktorTrack model, bar arithmetic, librosa analysis
+        └── server.py           # MCP tool declarations and implementations
+```

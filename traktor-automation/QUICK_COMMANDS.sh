@@ -7,7 +7,7 @@ echo "╚═══════════════════════�
 echo ""
 
 # Change to traktor-automation directory
-cd "/Users/dantaylor/Claude/Last Night an AI Saved My Life/traktor-automation"
+cd "/Users/dantaylor/Claude/Anima-in-Machina/traktor-automation"
 
 echo "Available commands:"
 echo ""

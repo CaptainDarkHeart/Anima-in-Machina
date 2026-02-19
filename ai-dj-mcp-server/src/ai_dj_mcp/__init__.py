@@ -1,3 +1,8 @@
-"""AI DJ MCP Server - AI-powered DJ mixing tools for Claude."""
+"""AI DJ MCP Server — Traktor-first DJ tools for Claude.
 
-__version__ = "0.1.0"
+Data hierarchy:
+  PRIMARY  — Traktor's own analysis via collection.nml (BPM, beatgrid, key, gain)
+  SECONDARY — librosa analysis of raw audio (energy envelope, breakdown detection)
+"""
+
+__version__ = "0.2.0"

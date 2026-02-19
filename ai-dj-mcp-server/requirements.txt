@@ -1,21 +1,17 @@
-# AI DJ MCP Server - Core Dependencies
+# AI DJ MCP Server — Core Dependencies (v0.2.0, Traktor-first)
 
 # MCP Protocol
 mcp>=1.0.0
 
-# Audio Processing
+# Audio Processing (librosa = secondary/optional; soundfile for audio loading)
 librosa>=0.10.0
 soundfile>=0.12.1
-pydub>=0.25.1
 
 # Scientific Computing
 numpy>=1.26.0
 scipy>=1.11.0
 
-# Machine Learning
-torch>=2.2.0
-scikit-learn>=1.2.0
-joblib>=1.5.0
+# NML parsing uses stdlib xml.etree.ElementTree — no extra XML dep needed
 
 # Development (optional)
 pytest>=7.0.0

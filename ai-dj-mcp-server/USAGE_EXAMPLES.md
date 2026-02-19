@@ -1,328 +1,244 @@
-# AI DJ MCP Server - Usage Examples
+# AI DJ MCP Server — Usage Examples
 
-Real-world examples of how to use the AI DJ tools with Claude.
-
----
-
-## Basic Track Analysis
-
-### Example 1: Analyze a Single Track
-
-**You ask Claude:**
-```
-Analyze the track at /Users/dantaylor/Music/Stimming - Una Pena (Traktor Edit).wav
-```
-
-**Claude responds with:**
-```
-Track Analysis: Stimming - Una Pena (Traktor Edit)
-
-Duration: 376.45 seconds
-BPM: 122.3
-Beats detected: 767
-Downbeats detected: 192
-
-First 10 beats (seconds): 0.52, 1.01, 1.50, 1.98, 2.47, 2.96, 3.44, 3.93, 4.42, 4.90
-First 5 downbeats (seconds): 0.52, 2.47, 4.42, 6.37, 8.32
-```
-
-**What you can do with this:**
-- Verify BPM detection matches your Traktor analysis
-- Understand beat grid timing
-- Check if downbeat detection aligns with musical structure
+All examples assume the server is running and tracks have been analysed in Traktor.
 
 ---
 
-## Cue Point Detection
+## 1. Check what Traktor knows about a track
 
-### Example 2: Find Optimal Mix Points
-
-**You ask Claude:**
+**Prompt:**
 ```
-Detect cue points for /Users/dantaylor/Music/Sasha Carassi - Blurred (Original Mix).wav
+Get track info for "Stimming - Una Pena.m4a"
 ```
 
-**Claude responds with:**
+**Response:**
 ```
-Cue Point Detection: Sasha Carassi - Blurred (Original Mix)
+Track Info: Stimming - Una Pena.m4a
 
-Detected 12 optimal cue points:
+Traktor Analysis (from collection.nml):
+  BPM:         122.000
+  Key:         8m  (Bb min)
+  Duration:    6:16.45
+  Beatgrid:    ✓ beatgrid present
+  Anchor:      0.123s
 
-  Cue 1: 0:08.12 (confidence: 0.876)
-  Cue 2: 0:32.45 (confidence: 0.823)
-  Cue 3: 1:04.78 (confidence: 0.891)
-  Cue 4: 1:48.23 (confidence: 0.845)
-  Cue 5: 2:16.56 (confidence: 0.901)
-  Cue 6: 3:02.89 (confidence: 0.867)
-  Cue 7: 3:35.12 (confidence: 0.778)
-  Cue 8: 4:20.45 (confidence: 0.834)
-  Cue 9: 4:52.78 (confidence: 0.812)
-  Cue 10: 5:28.11 (confidence: 0.889)
-  Cue 11: 6:04.44 (confidence: 0.856)
-  Cue 12: 6:36.77 (confidence: 0.823)
+Loudness / Auto-gain:
+  Peak:        -3.21 dB
+  Perceived:   -8.44 dB
+  Analyzed:    -6.12 dB
 
-Suggested Intro/Outro Markers:
-  Intro Start: 8.12s
-  Intro End: 32.45s
-  Outro Start: 364.44s
-  Outro End: 396.77s
-
-These markers are suitable for extended blends (60-90 seconds).
+Existing cue points:
+  Slot 2: 0:37.84  Beat
+  Slot 3: 4:05.12  Breakdown
+  Slot 4: 2:12.56  Groove  [loop 52.2s]
+  Slot 5: 5:24.00  End
 ```
 
-**How to use these cues:**
-1. Import track into Traktor
-2. Set cue points at the suggested times
-3. Use color coding: Red for intro, Green for outro
-4. Plan your 60-90 second extended blends around these points
+Use this to verify Traktor's analysis before writing cues, or to confirm what slots are already occupied.
 
 ---
 
-## Transition Planning
+## 2. Auto-write cue points (NML only)
 
-### Example 3: Plan a Mix Between Two Tracks
-
-**You ask Claude:**
+**Prompt:**
 ```
-Suggest transitions between:
-- /Music/Track1.wav (outgoing)
-- /Music/Track2.wav (incoming)
-with a 75 second blend
+Suggest cue points for "Lucidflow - Atmospheric Journey.m4a"
 ```
 
-**Claude responds with:**
+**Response:**
+```
+Cue Points: Lucidflow - Atmospheric Journey.m4a
+Source: nml
+BPM: 120.000  |  Anchor: 0.084ms  |  Duration: 412.3s
+
+Calculated positions (bar-snapped):
+  Slot 2  Beat:      41.08s  (0:41.08)
+  Slot 3  Breakdown: 268.15s  (4:28.15)
+  Slot 4  Groove:    144.30s  (2:24.30)  [loop 64.0s]
+  Slot 5  End:       348.15s  (5:48.15)
+
+  📋 Beat: estimated at ~10% — verify kick entry in Traktor
+  📋 Breakdown: estimated at ~65% — verify in Traktor
+
+✅ Written to collection.nml (backup: collection_backup_20260219_143022.nml):
+   Slot 2 (Beat): 41.08s
+   Slot 3 (Breakdown): 268.15s
+   Slot 4 (Groove): 144.30s  [loop 64.0s]
+   Slot 5 (End): 348.15s
+
+⚠️  Restart Traktor to load the updated collection.
+```
+
+The positions are bar-snapped to Traktor's beatgrid. Verify the Beat cue in Traktor since the 10% estimate may not land on the first kick of the intro.
+
+---
+
+## 3. Auto-write cues with librosa breakdown detection
+
+Providing the audio path lets the server find the actual energy low point instead of estimating at 65%.
+
+**Prompt:**
+```
+Suggest cue points for "Lucidflow - Atmospheric Journey.m4a"
+using /Users/dantaylor/Music/Lucidflow - Atmospheric Journey.m4a
+```
+
+**Response excerpt:**
+```
+Source: nml+librosa
+...
+  📋 Breakdown: detected at 261.3s by energy analysis
+  📋 BPM verified: Traktor 120.000 ≈ librosa 120.1 ✓
+```
+
+librosa scans the 40–80% zone for the lowest-energy 30-second window and snaps the result to the nearest bar.
+
+---
+
+## 4. Overwrite existing cues
+
+By default, occupied slots are skipped. To replace them:
+
+**Prompt:**
+```
+Suggest cue points for "Lucidflow - Atmospheric Journey.m4a" — overwrite existing
+```
+
+Or explicitly: `overwrite=true`. The server will remove the old cues in slots 2–5 and write the new ones. Slot 1 is always protected regardless.
+
+---
+
+## 5. Manually write a specific cue
+
+After reviewing the auto-suggestions in Traktor, you may want to adjust one position.
+
+**Prompt:**
+```
+Write a cue point for "Lucidflow - Atmospheric Journey.m4a":
+  slot 3, name "Breakdown", time 261300ms, overwrite existing
+```
+
+**Response:**
+```
+Write Cue Points: Lucidflow - Atmospheric Journey.m4a
+
+✅ Written (backup: collection_backup_20260219_143155.nml):
+   Slot 3 (Breakdown): 261.30s
+
+⚠️  Restart Traktor to load the updated collection.
+```
+
+---
+
+## 6. Plan a transition between two tracks
+
+**Prompt:**
+```
+Suggest a transition from "Lucidflow - Atmospheric Journey.m4a"
+to "Echocord - Deep Pulse.m4a"
+```
+
+**Response:**
 ```
 Transition Analysis
+==================================================
 
-Track 1: Lucidflow - Atmospheric Journey
-  BPM: 120.5
-  Duration: 412.34s
+Outgoing: Lucidflow - Atmospheric Journey.m4a
+  BPM: 120.000  |  Key: 9m (F min)  |  Duration: 6:52.30
 
-Track 2: Echocord - Deep Pulse
-  BPM: 121.8
-  Duration: 389.67s
+Incoming: Echocord - Deep Pulse.m4a
+  BPM: 121.800  |  Key: 8m (Bb min)  |  Duration: 6:29.67
 
-BPM Compatibility:
-  Ratio: 0.989
-  Compatible: ✓ Yes
+BPM:  ✓ Direct beatmatch  (ratio 0.985)
+      Adjust by 1.8 BPM
 
-Suggested Transition (75s blend):
-  Start fading out Track 1 at: 337.34s (5.6min)
-  Start fading in Track 2 at: 0.00s (from beginning)
+Key:  ✓ adjacent key — energy shift mix
 
-Mixing Strategy:
-  - Beatmatch at 1:1 ratio
-  - Use extended blend (75s) for smooth textural transition
-  - Gradually swap EQ (bass out on Track 1, bass in on Track 2)
-  - Layer atmospheric elements during blend
+Timing (32-bar blend at 120.0 BPM = 64s):
+  Start blend at:   5:48.30 into outgoing track
+  Incoming starts:  from beginning
+
+Suggested technique:
+  1. At blend start, bring incoming up under the outgoing bass
+  2. Over 32s: cut bass on outgoing, add bass on incoming
+  3. Use mid-EQ swell to mask the transition
+  4. Trim outgoing highs as incoming establishes
+
+  ✓ Loudness match: 1.2 dB difference (acceptable)
 ```
 
-**Your mixing workflow:**
-1. Load Track 1 on Deck A
-2. At 5:37 (337s), start loading Track 2 on Deck B
-3. Begin your 75-second blend
-4. Use EQ to gradually transition bass frequencies
-5. Layer atmospheric elements for textural depth
+To use a longer or shorter blend:
+
+**Prompt:**
+```
+Suggest transition from "Track A.m4a" to "Track B.m4a" with a 16-bar blend
+```
 
 ---
 
-## BPM Compatibility Checking
+## 7. Full analysis with librosa cross-check
 
-### Example 4: Check if Two Tracks Mix Well
-
-**You ask Claude:**
+**Prompt:**
 ```
-Calculate BPM compatibility between 120 BPM and 122 BPM with 3% tolerance
-```
-
-**Claude responds with:**
-```
-BPM Compatibility Analysis
-
-Track 1 BPM: 120.0
-Track 2 BPM: 122.0
-Ratio: 0.984
-Tolerance: ±3%
-
-Compatibility:
-  ✓ 1:1 mixing (direct beatmatch)
-    Tempo adjustment needed: 2.0 BPM
+Analyze "Lucidflow - Atmospheric Journey.m4a" at
+/Users/dantaylor/Music/Lucidflow - Atmospheric Journey.m4a
 ```
 
-**Practical application:**
-- These tracks CAN be mixed together
-- Adjust Track 2 by -2 BPM to match Track 1
-- Use Traktor's sync or manual tempo adjustment
+**Response:**
+```
+Full Analysis: Lucidflow - Atmospheric Journey.m4a
+============================================================
+
+── Traktor (collection.nml) ──────────────────────────────
+  BPM:       120.000
+  Key:       9m  (F min)
+  Duration:  6:52.30
+  Beatgrid:  ✓ present
+  Anchor:    0.084ms
+  Peak dB:   -2.45
+  Perceived: -7.88 dB
+
+── librosa ──────────────────────────────────────────────
+  BPM:       120.1  ✓ agree
+  Beats:     826 detected
+  Breakdown: 261.3s detected by energy analysis
+
+── Suggested cue positions ───────────────────────────────
+  Slot 2  Beat:      0:41.08
+  Slot 3  Breakdown: 4:21.30
+  Slot 4  Groove:    2:24.30  [loop 64s]
+  Slot 5  End:       5:48.30
+  Source: nml+librosa
+
+  📋 Breakdown: detected at 261.3s by energy analysis
+  📋 BPM verified: Traktor 120.000 ≈ librosa 120.1 ✓
+```
+
+This does not write anything — it's a read-only analysis. Use `suggest_cue_points` to write.
 
 ---
 
-## Advanced Workflows
+## 8. Batch workflow: process a playlist
 
-### Example 5: Analyze an Entire Set
+To process multiple tracks in sequence, describe them to Claude:
 
-**You ask Claude:**
+**Prompt:**
 ```
-I'm planning a 3-hour deep space house set. Analyze these tracks and suggest the order:
-
-1. /Music/Stimming - Una Pena.wav
-2. /Music/Sasha Carassi - Blurred.wav
-3. /Music/MCDE - Aurora.wav
-4. /Music/Lucidflow - Atmospheric.wav
-5. /Music/Echocord - Deep Pulse.wav
+For each of these tracks, suggest cue points (NML only):
+- "Stimming - Una Pena.m4a"
+- "Lucidflow - Atmospheric Journey.m4a"
+- "Echocord - Deep Pulse.m4a"
+Skip any track that already has cues in slots 2-5.
 ```
 
-**Claude will:**
-1. Analyze BPM and key for each track
-2. Check compatibility between adjacent tracks
-3. Suggest optimal ordering based on energy progression
-4. Recommend transition points for each mix
+Claude will call `get_track_info` to check existing cues first, then call `suggest_cue_points` only for tracks with empty slots.
 
 ---
 
-### Example 6: Build a Journey Arc
+## Tips
 
-**You ask Claude:**
-```
-Using my deep space house mixing philosophy (60-90 second blends, A Minor journeys,
-gradual energy building), analyze these Lucidflow tracks and suggest a journey arc:
-
-/Music/Lucidflow/Track1.wav (opener candidate)
-/Music/Lucidflow/Track2.wav
-/Music/Lucidflow/Track3.wav (peak candidate)
-```
-
-**Claude will:**
-1. Analyze each track's energy curve
-2. Detect cue points optimized for extended blends
-3. Suggest BPM adjustments if needed
-4. Map out a journey following your documented philosophy
-5. Reference your EXAMPLE_JOURNEY_ARCS.md for style guidance
-
----
-
-## Integration with Your Workflow
-
-### Traktor Integration
-
-Once you have cue points from Claude:
-
-1. **Import to Traktor:**
-   - Open track in Traktor
-   - Set hot cues at detected times
-   - Use your 6-color system (from TRAKTOR_SETUP_GUIDE.md)
-
-2. **Verify Beat Grid:**
-   - Compare detected BPM with Traktor's analysis
-   - Adjust beat grid if needed
-   - Set downbeat markers
-
-3. **Mark Intro/Outro:**
-   - Red cue at intro_start
-   - Yellow cue at intro_end
-   - Green cue at outro_start
-   - Blue cue at outro_end
-
-### Mixxx Integration
-
-For use with Mixxx DJ software:
-
-1. **Export Cue Points:**
-   Ask Claude to format cue points for Mixxx import
-
-2. **Create Playlists:**
-   Use BPM compatibility to build smart playlists
-
-3. **AutoDJ Configuration:**
-   Set intro/outro markers for automatic mixing
-
----
-
-## Feature Extraction for ML
-
-### Example 7: Extract Features for Training
-
-**You ask Claude:**
-```
-Extract features from /Music/training-set/track001.wav
-```
-
-**Claude responds with:**
-```
-Feature Extraction: track001
-
-Extracted 512 feature vectors (24 dimensions each)
-
-Feature breakdown per beat:
-  - 13 MFCC coefficients
-  - 7 Spectral Contrast bands
-  - 1 Spectral Centroid
-  - 1 Spectral Rolloff
-  - 1 Spectral Flux
-  - 1 RMS Energy
-
-Total shape: (512, 24)
-```
-
-**Use cases:**
-- Train custom cue detection models
-- Analyze track similarity
-- Build energy curve predictors
-- Create genre classifiers
-
----
-
-## Batch Processing
-
-### Example 8: Analyze Multiple Tracks
-
-**You ask Claude:**
-```
-Create a batch analysis script for all WAV files in /Music/New-Tracks/
-```
-
-**Claude can help you:**
-1. Write a Python script using the Track class
-2. Analyze all tracks in parallel
-3. Export results to CSV or JSON
-4. Generate compatibility matrix for your library
-
----
-
-## Tips for Best Results
-
-### Audio File Requirements
-
-- **Supported formats:** WAV, AIFF, MP3, FLAC
-- **Recommended:** WAV or AIFF (lossless)
-- **Sample rate:** 44.1kHz or 48kHz
-- **Bit depth:** 16-bit or 24-bit
-- **Channels:** Mono or stereo (auto-converted to mono)
-
-### Cue Point Detection Accuracy
-
-- Works best with clear rhythmic structure
-- Deep house, techno, and minimal are ideal genres
-- Ambient or beatless sections may produce less accurate results
-- Adjust `num_cues` based on track length (12 for 6-8 min tracks)
-
-### BPM Detection
-
-- Most accurate for tracks with consistent tempo
-- May struggle with tracks that have tempo changes
-- Compare with Traktor's BPM analysis for verification
-- Use `align_to_phrase=True` for better musical alignment
-
----
-
-## Next Steps
-
-Now that you understand the tools:
-
-1. **Analyze your top 100 tracks** - Build a database of BPM and cue points
-2. **Create compatibility matrices** - Find tracks that mix well together
-3. **Build journey arcs** - Use your deep space house philosophy
-4. **Train custom models** - Use extracted features to train on your style
-
----
-
-**Happy mixing!** 🎧🚀
+- **Filenames must match exactly** — use `get_track_info` to confirm a track is in the collection before writing
+- **Always restart Traktor** after writing — cues won't appear until Traktor re-reads the NML
+- **Verify Beat cues** — the 10% position may not land on the first kick; nudge it in Traktor if needed
+- **Groove is a loop** — slot 4 is a 32-bar saved loop, not a hot cue; make sure Traktor's Loop Recorder is off when you trigger it
+- **Backups accumulate** — periodically clean up old `collection_backup_*.nml` files from your Traktor folder

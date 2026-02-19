@@ -1,296 +1,119 @@
-# AI DJ MCP Server - Installation Guide
-
-Complete step-by-step guide to install and configure the AI DJ MCP Server for use with Claude Desktop.
-
----
+# AI DJ MCP Server — Installation Guide
 
 ## Prerequisites
 
-### 1. System Requirements
-
-- **Python 3.10 or higher**
-- **macOS, Windows, or Linux**
-- **At least 2GB of free RAM**
-- **ffmpeg** (for audio processing)
-
-### 2. Install Python Dependencies
-
-First, verify Python version:
-
-```bash
-python3 --version
-```
-
-Should show Python 3.10 or higher.
-
-### 3. Install ffmpeg
-
-**macOS (using Homebrew):**
-```bash
-brew install ffmpeg
-```
-
-**Ubuntu/Debian:**
-```bash
-sudo apt-get install ffmpeg
-```
-
-**Windows:**
-Download from [ffmpeg.org](https://ffmpeg.org/download.html) and add to PATH.
+- **Python 3.10+**
+- **Traktor Pro 3** with tracks already analysed (beatgrid required for cue writing)
+- **macOS** (NML default path is macOS-specific; other platforms need a custom path)
 
 ---
 
-## Installation Steps
-
-### Step 1: Navigate to Server Directory
+## Step 1: Install Python package
 
 ```bash
-cd /path/to/ai-dj-mcp-server
-```
-
-Replace `/path/to/` with the actual path to this directory.
-
-### Step 2: Install the Package
-
-```bash
+cd /Users/dantaylor/Claude/Anima-in-Machina/ai-dj-mcp-server
 pip install -e .
 ```
 
-This installs the package in "editable" mode, allowing you to modify the code.
+This installs `mcp`, `librosa`, `soundfile`, `numpy`, and `scipy`.
 
-### Step 3: Verify Installation
-
-Test that the server can be imported:
+Verify:
 
 ```bash
-python3 -c "from ai_dj_mcp import server; print('Installation successful!')"
+python3 -c "from ai_dj_mcp import server; print('OK')"
 ```
 
 ---
 
-## Configure Claude Desktop
+## Step 2: Configure Claude Desktop
 
-### Step 1: Find Configuration File
-
-**macOS:**
-```
-~/Library/Application Support/Claude/claude_desktop_config.json
-```
-
-**Windows:**
-```
-%APPDATA%\Claude\claude_desktop_config.json
-```
-
-### Step 2: Edit Configuration
-
-Open the configuration file and add the AI DJ server:
+Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "ai-dj": {
       "command": "python3",
-      "args": [
-        "-m",
-        "ai_dj_mcp.server"
-      ],
-      "cwd": "/absolute/path/to/ai-dj-mcp-server/src"
+      "args": ["-m", "ai_dj_mcp"],
+      "cwd": "/Users/dantaylor/Claude/Anima-in-Machina/ai-dj-mcp-server/src"
     }
   }
 }
 ```
 
-**Important:** Replace `/absolute/path/to/ai-dj-mcp-server/src` with the actual absolute path to the `src` directory.
-
-**Example for macOS:**
-```json
-{
-  "mcpServers": {
-    "ai-dj": {
-      "command": "python3",
-      "args": [
-        "-m",
-        "ai_dj_mcp.server"
-      ],
-      "cwd": "/Users/dantaylor/Claude/Last Night an AI Saved My Life/ai-dj-mcp-server/src"
-    }
-  }
-}
-```
-
-### Step 3: Get Absolute Path
-
-To find the absolute path:
-
-```bash
-cd ai-dj-mcp-server/src
-pwd
-```
-
-Copy the output and paste it into the `cwd` field.
-
-### Step 4: Restart Claude Desktop
-
-Completely quit and restart Claude Desktop for changes to take effect.
+The `cwd` must point to the `src/` directory (where the `ai_dj_mcp` package lives).
 
 ---
 
-## Verify MCP Server is Running
+## Step 3: Restart Claude Desktop
 
-After restarting Claude Desktop:
-
-1. Open a new conversation with Claude
-2. Ask: **"What MCP tools do you have available?"**
-3. Claude should list the AI DJ tools:
-   - `analyze_track`
-   - `detect_cue_points`
-   - `suggest_transitions`
-   - `extract_features`
-   - `calculate_bpm_compatibility`
+Completely quit and relaunch Claude Desktop. The MCP server starts on demand when Claude makes its first tool call.
 
 ---
 
-## Test with Sample Audio
+## Step 4: Verify
 
-### Option A: Use Your Own Tracks
-
-Ask Claude to analyze one of your tracks:
+Ask Claude:
 
 ```
-Analyze the track at /path/to/your/track.wav
+What AI DJ tools do you have?
 ```
 
-### Option B: Download Sample Audio
+Claude should list five tools: `get_track_info`, `suggest_cue_points`, `write_cue_points`, `suggest_transition`, `analyze_library_track`.
 
-Download a Creative Commons licensed track:
+---
 
-```bash
-# Example: download a sample track
-curl -o test-track.wav https://example.com/sample.wav
-```
+## NML requirements
 
-Then ask Claude:
+The server reads and writes `~/Documents/Native Instruments/Traktor 3.11.1/collection.nml`.
 
-```
-Analyze the track at /absolute/path/to/test-track.wav
-```
+For `suggest_cue_points` and `write_cue_points` to work:
+1. The track must have been loaded into Traktor at least once (it must appear in the collection)
+2. The track must have been **analysed** in Traktor so it has a beatgrid (CUE_V2 TYPE=4)
+
+To check: load the track in Traktor, open the Track Info panel, confirm "Beat Grid" is green.
 
 ---
 
 ## Troubleshooting
 
-### Issue: "Command not found: python3"
+### "Track not found in collection.nml"
 
-**Solution:** Use `python` instead of `python3` in the config:
+The filename must match exactly as stored in Traktor — e.g. `Dreams.m4a`, not a full path or display title.
 
-```json
-"command": "python",
+To find the exact filename:
+```bash
+grep -o 'FILE="[^"]*Dreams[^"]*"' ~/Documents/Native\ Instruments/Traktor\ 3.11.1/collection.nml
 ```
 
-### Issue: "Module 'ai_dj_mcp' not found"
+### "Track has no beatgrid"
 
-**Solution:** Verify installation:
+Open Traktor → load the track → click Analyse (or right-click → Analyse in the browser). Wait for the waveform to render.
+
+### "Module 'ai_dj_mcp' not found"
+
+Confirm `cwd` in the config points to `.../ai-dj-mcp-server/src`, then run `pip install -e .` again from the project root.
+
+### librosa import error
 
 ```bash
-cd ai-dj-mcp-server
-pip install -e .
+pip install librosa soundfile numpy scipy
 ```
 
-Check that `cwd` points to the `src` directory (not the root).
+### Tools not appearing in Claude Desktop
 
-### Issue: "librosa not installed"
+Check logs at `~/Library/Logs/Claude/`. Common causes:
+- Invalid JSON in `claude_desktop_config.json`
+- Wrong `cwd` (must be absolute, no `~`)
+- Python not on PATH — use the full path: `"command": "/usr/bin/python3"`
 
-**Solution:** Install missing dependencies:
+### After writing cues, Traktor doesn't show them
 
-```bash
-pip install librosa soundfile numpy scipy torch scikit-learn pydub joblib
-```
-
-### Issue: Server not showing in Claude Desktop
-
-**Solution:**
-
-1. Check configuration file syntax (valid JSON)
-2. Verify absolute paths (no `~` or relative paths)
-3. Completely quit Claude Desktop (not just close window)
-4. Check Claude Desktop logs:
-   - **macOS:** `~/Library/Logs/Claude/`
-   - **Windows:** `%APPDATA%\Claude\logs\`
-
-### Issue: "No pre-trained model found" warning
-
-**Expected behavior:** The server will use a dummy model for testing. This is normal and doesn't affect basic functionality. For production use, you would train and load a real LSTM model.
+Traktor reads the NML only at startup. Quit and relaunch Traktor.
 
 ---
 
-## Advanced Configuration
+## Uninstall
 
-### Using a Custom Model
-
-If you have a trained LSTM model:
-
-1. Create `models` directory:
-```bash
-mkdir -p ai-dj-mcp-server/src/ai_dj_mcp/models
-```
-
-2. Place your files:
-   - `lstm_model.pth` - PyTorch model weights
-   - `scaler.joblib` - Feature scaler
-
-3. Restart Claude Desktop
-
-### Adjust Logging Level
-
-Edit `src/ai_dj_mcp/server.py`:
-
-```python
-logging.basicConfig(level=logging.DEBUG)  # More verbose
-# or
-logging.basicConfig(level=logging.WARNING)  # Less verbose
-```
-
----
-
-## Next Steps
-
-Once installed, you can:
-
-1. **Analyze your track library** - Get BPM, beats, and cue points
-2. **Plan transitions** - Find compatible tracks for mixing
-3. **Extract features** - Use ML features for advanced analysis
-4. **Build playlists** - Use compatibility data to create journey arcs
-
----
-
-## Uninstallation
-
-To remove the server:
-
-1. Remove from Claude Desktop config:
-   - Delete the `"ai-dj"` entry from `claude_desktop_config.json`
-
-2. Uninstall Python package:
-```bash
-pip uninstall ai-dj-mcp-server
-```
-
-3. Delete directory:
-```bash
-rm -rf /path/to/ai-dj-mcp-server
-```
-
----
-
-## Support
-
-For issues or questions:
-
-- Check the main [README.md](README.md)
-- Review error messages in Claude Desktop logs
-- Verify all prerequisites are installed
-
----
-
-**You're all set!** The AI DJ MCP Server is now ready to analyze tracks and help you build perfect DJ sets.
+1. Remove `"ai-dj"` entry from `claude_desktop_config.json`
+2. `pip uninstall ai-dj-mcp-server`

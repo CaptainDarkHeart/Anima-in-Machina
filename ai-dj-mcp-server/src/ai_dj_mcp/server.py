@@ -1,215 +1,230 @@
-"""AI DJ MCP Server - Provides DJ mixing tools via Model Context Protocol."""
+"""AI DJ MCP Server — Traktor-first DJ mixing tools via Model Context Protocol.
+
+Data hierarchy:
+  PRIMARY  — Traktor's analysis in collection.nml (BPM, beatgrid, key, gain, cues)
+  SECONDARY — librosa on raw audio (energy envelope, BPM cross-check, breakdown detection)
+
+Tools:
+  get_track_info        — read Traktor analysis data for a track (fast, NML only)
+  suggest_cue_points    — calculate + write 4 cue points using Traktor BPM/beatgrid
+  write_cue_points      — manually write exact cue positions to NML
+  suggest_transition    — BPM + key compatibility between two tracks
+  analyze_library_track — full analysis: Traktor data + librosa cross-check
+"""
 
 import asyncio
 import logging
 from pathlib import Path
-from typing import Optional
 
 from mcp.server import Server
-from mcp.types import Tool, TextContent, ErrorData, INTERNAL_ERROR
+from mcp.types import Tool, TextContent
 
-from .track import Track
-from .cue_detector import CuePointDetector, create_dummy_model, create_dummy_scaler
+from .nml_reader import NMLReader, camelot_compatible
+from .traktor_track import TraktorTrack, bars_to_ms
 
-# Configure logging
+# ──────────────────────────────────────────────────────────────────────────── #
+# Initialisation                                                                #
+# ──────────────────────────────────────────────────────────────────────────── #
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ai-dj-mcp")
 
-# Initialize MCP server
 app = Server("ai-dj")
 
-# Global cue detector instance
-cue_detector: Optional[CuePointDetector] = None
+# Shared NMLReader — lazy-loaded once, cached
+_nml_reader: NMLReader | None = None
 
 
-def init_cue_detector():
-    """Initialize the cue point detector with dummy model if no trained model available."""
-    global cue_detector
-    try:
-        # Try to load pre-trained model (if available)
-        # In production, these would point to actual trained model files
-        model_path = Path(__file__).parent / "models" / "lstm_model.pth"
-        scaler_path = Path(__file__).parent / "models" / "scaler.joblib"
+def get_nml_reader() -> NMLReader:
+    global _nml_reader
+    if _nml_reader is None:
+        _nml_reader = NMLReader()
+    return _nml_reader
 
-        if model_path.exists() and scaler_path.exists():
-            cue_detector = CuePointDetector(str(model_path), str(scaler_path))
-            logger.info("Loaded pre-trained cue detection model")
-        else:
-            # Use dummy model for testing
-            cue_detector = CuePointDetector()
-            dummy_model = create_dummy_model()
-            dummy_scaler = create_dummy_scaler()
-            cue_detector.model = dummy_model
-            cue_detector.scaler = dummy_scaler
-            logger.warning("Using dummy cue detection model (no pre-trained model found)")
 
-    except Exception as e:
-        logger.error(f"Failed to initialize cue detector: {e}")
-        cue_detector = None
-
+# ──────────────────────────────────────────────────────────────────────────── #
+# Tool declarations                                                             #
+# ──────────────────────────────────────────────────────────────────────────── #
 
 @app.list_tools()
 async def list_tools() -> list[Tool]:
-    """List available DJ tools."""
     return [
         Tool(
-            name="analyze_track",
+            name="get_track_info",
             description=(
-                "Comprehensive audio track analysis including BPM detection, beat detection, "
-                "downbeat detection, and feature extraction. Returns detailed metadata about "
-                "the track's rhythmic structure and musical characteristics."
+                "Read Traktor's analysis data for a track directly from collection.nml. "
+                "Returns BPM, musical key (Camelot notation), duration, loudness/gain levels, "
+                "beatgrid anchor position, and any existing cue points. Fast — no audio loading."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "Track filename, e.g. 'Dreams.m4a'. Must match exactly as stored in Traktor."
+                    }
+                },
+                "required": ["filename"]
+            }
+        ),
+        Tool(
+            name="suggest_cue_points",
+            description=(
+                "Calculate and write four cue points for a track using Traktor's BPM and "
+                "beatgrid anchor as the primary source. Cue positions are snapped to bar "
+                "boundaries. If audio_path is provided, librosa analyses the energy envelope "
+                "to detect the actual breakdown position rather than estimating at 65%. "
+                "Writes directly to collection.nml with automatic backup. "
+                "Slot layout: Slot 2=Beat (intro), Slot 3=Breakdown, Slot 4=Groove (32-bar loop), Slot 5=End (mix-out)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "Track filename, e.g. 'Dreams.m4a'"
+                    },
                     "audio_path": {
                         "type": "string",
-                        "description": "Absolute path to audio file (WAV, AIFF, MP3, FLAC, etc.)"
+                        "description": "Absolute path to audio file for librosa energy analysis (optional but recommended)"
                     },
-                    "extract_features": {
+                    "overwrite": {
                         "type": "boolean",
-                        "description": "Extract 24-dimensional feature vectors at each beat (default: false)",
+                        "description": "Replace existing cues in slots 2-5 (default: false — skips occupied slots)",
                         "default": False
                     }
                 },
-                "required": ["audio_path"]
+                "required": ["filename"]
             }
         ),
         Tool(
-            name="detect_cue_points",
+            name="write_cue_points",
             description=(
-                "AI-powered cue point detection using LSTM neural networks. Analyzes the track's "
-                "features and suggests optimal cue points for DJ mixing, including intro/outro "
-                "markers suitable for extended blends."
+                "Manually write specific cue points to a track in collection.nml. "
+                "Use this after reviewing suggestions to write exact positions, or to "
+                "correct a specific cue. Slot 1 is always protected. "
+                "Creates automatic NML backup before writing."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "audio_path": {
+                    "filename": {
                         "type": "string",
-                        "description": "Absolute path to audio file"
+                        "description": "Track filename, e.g. 'Dreams.m4a'"
                     },
-                    "num_cues": {
-                        "type": "integer",
-                        "description": "Number of cue points to detect (default: 12)",
-                        "default": 12
+                    "cue_points": {
+                        "type": "array",
+                        "description": "List of cue points to write",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "slot":     {"type": "integer", "description": "Hotcue slot (2-8; slot 1 always protected)"},
+                                "name":     {"type": "string",  "description": "Cue label, e.g. 'Breakdown'"},
+                                "time_ms":  {"type": "number",  "description": "Position in milliseconds"},
+                                "type":     {"type": "integer", "description": "0=cue, 5=loop (default: 0)"},
+                                "len_ms":   {"type": "number",  "description": "Loop length in ms (loops only, default: 0)"}
+                            },
+                            "required": ["slot", "name", "time_ms"]
+                        }
                     },
-                    "align_to_phrase": {
+                    "overwrite": {
                         "type": "boolean",
-                        "description": "Align cues to 4-beat musical phrases (default: true)",
-                        "default": True
+                        "description": "Replace existing cues in specified slots (default: false)",
+                        "default": False
                     }
                 },
-                "required": ["audio_path"]
+                "required": ["filename", "cue_points"]
             }
         ),
         Tool(
-            name="suggest_transitions",
+            name="suggest_transition",
             description=(
-                "Analyze two tracks and suggest optimal transition points based on BPM compatibility, "
-                "energy matching, and cue point alignment. Useful for planning extended blends and "
-                "seamless transitions."
+                "Analyse two tracks and suggest how to mix them. Uses Traktor's BPM and key data "
+                "from collection.nml. Returns BPM compatibility, Camelot wheel key compatibility, "
+                "suggested mix-out time for the outgoing track, suggested mix-in time for the "
+                "incoming track, and EQ swap strategy."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "track1_path": {
+                    "filename1": {
                         "type": "string",
-                        "description": "Path to first (outgoing) track"
+                        "description": "Outgoing track filename"
                     },
-                    "track2_path": {
+                    "filename2": {
                         "type": "string",
-                        "description": "Path to second (incoming) track"
+                        "description": "Incoming track filename"
                     },
-                    "blend_duration": {
-                        "type": "number",
-                        "description": "Desired blend duration in seconds (default: 60)",
-                        "default": 60
+                    "blend_bars": {
+                        "type": "integer",
+                        "description": "Desired blend length in bars (default: 32)",
+                        "default": 32
                     }
                 },
-                "required": ["track1_path", "track2_path"]
+                "required": ["filename1", "filename2"]
             }
         ),
         Tool(
-            name="extract_features",
+            name="analyze_library_track",
             description=(
-                "Extract detailed 24-dimensional feature vectors from an audio track. "
-                "Features include MFCC, spectral contrast, spectral centroid/rolloff/flux, "
-                "and RMS energy at each beat. Useful for advanced analysis and ML applications."
+                "Full analysis combining Traktor collection.nml data with librosa audio analysis. "
+                "Returns all Traktor fields plus librosa BPM cross-check, energy envelope summary, "
+                "detected breakdown position, and agreement flags. Slower than get_track_info "
+                "because it loads and analyses the audio file."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "Track filename, e.g. 'Dreams.m4a'"
+                    },
                     "audio_path": {
                         "type": "string",
                         "description": "Absolute path to audio file"
                     }
                 },
-                "required": ["audio_path"]
+                "required": ["filename", "audio_path"]
             }
         ),
-        Tool(
-            name="calculate_bpm_compatibility",
-            description=(
-                "Calculate BPM compatibility between two tracks, considering tempo ratios "
-                "(1:1, 2:1, 1:2) and suggesting whether they can be mixed together. "
-                "Essential for beatmatching and harmonic mixing."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "bpm1": {
-                        "type": "number",
-                        "description": "BPM of first track"
-                    },
-                    "bpm2": {
-                        "type": "number",
-                        "description": "BPM of second track"
-                    },
-                    "tolerance": {
-                        "type": "number",
-                        "description": "BPM tolerance percentage (default: 6%)",
-                        "default": 6.0
-                    }
-                },
-                "required": ["bpm1", "bpm2"]
-            }
-        )
     ]
 
 
+# ──────────────────────────────────────────────────────────────────────────── #
+# Tool dispatch                                                                 #
+# ──────────────────────────────────────────────────────────────────────────── #
+
 @app.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    """Handle tool calls."""
     try:
-        if name == "analyze_track":
-            return await analyze_track(
-                arguments["audio_path"],
-                arguments.get("extract_features", False)
+        if name == "get_track_info":
+            return await _get_track_info(arguments["filename"])
+
+        elif name == "suggest_cue_points":
+            return await _suggest_cue_points(
+                filename=arguments["filename"],
+                audio_path=arguments.get("audio_path"),
+                overwrite=arguments.get("overwrite", False),
             )
 
-        elif name == "detect_cue_points":
-            return await detect_cue_points(
-                arguments["audio_path"],
-                arguments.get("num_cues", 12),
-                arguments.get("align_to_phrase", True)
+        elif name == "write_cue_points":
+            return await _write_cue_points(
+                filename=arguments["filename"],
+                cue_points=arguments["cue_points"],
+                overwrite=arguments.get("overwrite", False),
             )
 
-        elif name == "suggest_transitions":
-            return await suggest_transitions(
-                arguments["track1_path"],
-                arguments["track2_path"],
-                arguments.get("blend_duration", 60)
+        elif name == "suggest_transition":
+            return await _suggest_transition(
+                filename1=arguments["filename1"],
+                filename2=arguments["filename2"],
+                blend_bars=arguments.get("blend_bars", 32),
             )
 
-        elif name == "extract_features":
-            return await extract_features_tool(arguments["audio_path"])
-
-        elif name == "calculate_bpm_compatibility":
-            return await calculate_bpm_compatibility(
-                arguments["bpm1"],
-                arguments["bpm2"],
-                arguments.get("tolerance", 6.0)
+        elif name == "analyze_library_track":
+            return await _analyze_library_track(
+                filename=arguments["filename"],
+                audio_path=arguments["audio_path"],
             )
 
         else:
@@ -217,263 +232,389 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
     except Exception as e:
         logger.error(f"Error in {name}: {e}", exc_info=True)
-        return [TextContent(
-            type="text",
-            text=f"Error: {str(e)}"
-        )]
+        return [TextContent(type="text", text=f"Error: {e}")]
 
 
-async def analyze_track(audio_path: str, extract_features: bool = False) -> list[TextContent]:
-    """Analyze track: detect BPM, beats, downbeats, and optionally extract features."""
-    track = Track(audio_path)
+# ──────────────────────────────────────────────────────────────────────────── #
+# Tool implementations                                                          #
+# ──────────────────────────────────────────────────────────────────────────── #
 
-    # Load audio
-    track.load_audio()
+async def _get_track_info(filename: str) -> list[TextContent]:
+    """Read all Traktor analysis data for a track from collection.nml."""
+    reader = get_nml_reader()
+    data = reader.get_track_data(filename)
 
-    # Detect beats and tempo
-    beats, tempo = track.detect_beats()
+    if data is None:
+        return [TextContent(type="text", text=(
+            f"Track not found in collection.nml: {filename!r}\n"
+            "Make sure the filename matches exactly as stored in Traktor "
+            "(e.g. 'Dreams.m4a', not a full path)."
+        ))]
 
-    # Detect downbeats
-    downbeats = track.detect_downbeats()
+    dur_s = (data["duration_ms"] / 1000.0) if data["duration_ms"] else None
+    anchor_s = (data["anchor_ms"] / 1000.0) if data["anchor_ms"] else None
+    grid_status = "✓ beatgrid present" if data["has_grid"] else "✗ no beatgrid — analyse in Traktor first"
 
-    # Extract features if requested
-    if extract_features:
-        track.extract_features_for_beats()
-
-    # Build response
-    analysis = track.to_dict()
-
-    result = f"""Track Analysis: {track.name}
-
-Duration: {analysis['duration']:.2f} seconds
-BPM: {analysis['tempo']:.1f}
-Beats detected: {analysis['num_beats']}
-Downbeats detected: {analysis['num_downbeats']}
-
-First 10 beats (seconds): {', '.join(f'{b:.2f}' for b in beats[:10])}
-First 5 downbeats (seconds): {', '.join(f'{d:.2f}' for d in downbeats[:5])}
-"""
-
-    if extract_features:
-        result += f"\nFeature vectors extracted: {track.features['beat_features'].shape}"
-
-    return [TextContent(type="text", text=result)]
-
-
-async def detect_cue_points(
-    audio_path: str,
-    num_cues: int = 12,
-    align_to_phrase: bool = True
-) -> list[TextContent]:
-    """Detect optimal cue points using LSTM model."""
-    if cue_detector is None:
-        init_cue_detector()
-
-    if cue_detector is None:
-        raise ValueError("Cue detector not available")
-
-    # Analyze track
-    track = Track(audio_path)
-    track.load_audio()
-    track.detect_beats()
-    track.extract_features_for_beats()
-
-    # Predict cue points
-    cue_times, cue_indices, confidences = cue_detector.predict_cue_points(
-        track.features['beat_features'],
-        track.beats,
-        num_cues=num_cues,
-        align_to_phrase=align_to_phrase
-    )
-
-    # Store in track
-    track.cue_points = cue_times
-    track.cue_points_indices = cue_indices
-
-    # Detect intro/outro
-    intro_outro = cue_detector.detect_intro_outro(cue_times, track.duration)
-
-    # Build response
-    result = f"""Cue Point Detection: {track.name}
-
-Detected {len(cue_times)} optimal cue points:
-
-"""
-
-    for i, (time, conf) in enumerate(zip(cue_times, confidences)):
-        minutes = int(time // 60)
-        seconds = time % 60
-        result += f"  Cue {i+1}: {minutes}:{seconds:05.2f} (confidence: {conf:.3f})\n"
-
-    result += f"""
-Suggested Intro/Outro Markers:
-  Intro Start: {intro_outro['intro_start']:.2f}s
-  Intro End: {intro_outro['intro_end']:.2f}s
-  Outro Start: {intro_outro['outro_start']:.2f}s
-  Outro End: {intro_outro['outro_end']:.2f}s
-
-These markers are suitable for extended blends (60-90 seconds).
-"""
-
-    return [TextContent(type="text", text=result)]
-
-
-async def suggest_transitions(
-    track1_path: str,
-    track2_path: str,
-    blend_duration: float = 60
-) -> list[TextContent]:
-    """Suggest optimal transition between two tracks."""
-    # Analyze both tracks
-    track1 = Track(track1_path)
-    track1.load_audio()
-    track1.detect_beats()
-
-    track2 = Track(track2_path)
-    track2.load_audio()
-    track2.detect_beats()
-
-    # Calculate BPM compatibility
-    bpm_ratio = track1.tempo / track2.tempo
-    compatible = 0.94 <= bpm_ratio <= 1.06 or 1.88 <= bpm_ratio <= 2.12 or 0.47 <= bpm_ratio <= 0.53
-
-    # Calculate transition points
-    blend_start_track1 = track1.duration - blend_duration
-    blend_start_track2 = 0
-
-    result = f"""Transition Analysis
-
-Track 1: {track1.name}
-  BPM: {track1.tempo:.1f}
-  Duration: {track1.duration:.2f}s
-
-Track 2: {track2.name}
-  BPM: {track2.tempo:.1f}
-  Duration: {track2.duration:.2f}s
-
-BPM Compatibility:
-  Ratio: {bpm_ratio:.3f}
-  Compatible: {"✓ Yes" if compatible else "✗ No - consider tempo adjustment"}
-
-Suggested Transition ({blend_duration}s blend):
-  Start fading out Track 1 at: {blend_start_track1:.2f}s ({blend_start_track1/60:.1f}min)
-  Start fading in Track 2 at: {blend_start_track2:.2f}s (from beginning)
-
-Mixing Strategy:
-"""
-
-    if compatible:
-        if 0.94 <= bpm_ratio <= 1.06:
-            result += "  - Beatmatch at 1:1 ratio\n"
-        elif 1.88 <= bpm_ratio <= 2.12:
-            result += "  - Beatmatch at 2:1 ratio (halftime mix)\n"
-        else:
-            result += "  - Beatmatch at 1:2 ratio (double-time mix)\n"
-
-        result += f"  - Use extended blend ({blend_duration}s) for smooth textural transition\n"
-        result += "  - Gradually swap EQ (bass out on Track 1, bass in on Track 2)\n"
-        result += "  - Layer atmospheric elements during blend\n"
+    cues_text = ""
+    if data["existing_cues"]:
+        cues_text = "\nExisting cue points:\n"
+        for cue in sorted(data["existing_cues"], key=lambda c: c.get("hotcue", -1)):
+            hc = cue["hotcue"]
+            slot_str = f"Slot {hc}" if hc >= 0 else "(no hotcue)"
+            t_s = cue["start_ms"] / 1000.0
+            mins, secs = divmod(t_s, 60)
+            loop_note = f"  [loop {cue['len_ms']/1000:.1f}s]" if cue.get("len_ms", 0) > 0 else ""
+            cues_text += f"  {slot_str}: {int(mins)}:{secs:05.2f}  {cue['name']}{loop_note}\n"
     else:
-        result += "  - Consider tempo adjustment or quick cut\n"
-        result += f"  - To match: adjust Track 2 to {track1.tempo:.1f} BPM\n"
+        cues_text = "\nNo cue points set.\n"
+
+    result = f"""Track Info: {filename}
+
+Traktor Analysis (from collection.nml):
+  BPM:         {data['bpm']:.3f if data['bpm'] else 'unknown'}
+  Key:         {data['key_camelot'] or 'unknown'}  ({data['key_name'] or '—'})
+  Duration:    {f"{int(dur_s//60)}:{dur_s%60:05.2f}" if dur_s else 'unknown'}
+  Beatgrid:    {grid_status}
+  Anchor:      {f"{anchor_s:.3f}s" if anchor_s else 'none'}
+
+Loudness / Auto-gain:
+  Peak:        {f"{data['peak_db']:.2f} dB" if data['peak_db'] is not None else 'unknown'}
+  Perceived:   {f"{data['perceived_db']:.2f} dB" if data['perceived_db'] is not None else 'unknown'}
+  Analyzed:    {f"{data['analyzed_db']:.2f} dB" if data['analyzed_db'] is not None else 'unknown'}
+{cues_text}"""
 
     return [TextContent(type="text", text=result)]
 
 
-async def extract_features_tool(audio_path: str) -> list[TextContent]:
-    """Extract 24-dimensional feature vectors."""
-    track = Track(audio_path)
-    track.load_audio()
-    track.detect_beats()
-    features = track.extract_features_for_beats()
-
-    feat_array = features['beat_features']
-
-    result = f"""Feature Extraction: {track.name}
-
-Extracted {feat_array.shape[0]} feature vectors (24 dimensions each)
-
-Feature breakdown per beat:
-  - 13 MFCC coefficients
-  - 7 Spectral Contrast bands
-  - 1 Spectral Centroid
-  - 1 Spectral Rolloff
-  - 1 Spectral Flux
-  - 1 RMS Energy
-
-Total shape: {feat_array.shape}
-
-Sample features (first beat):
-  MFCCs: {feat_array[0, :13]}
-  Spectral Contrast: {feat_array[0, 13:20]}
-  Other: {feat_array[0, 20:]}
-"""
-
-    return [TextContent(type="text", text=result)]
-
-
-async def calculate_bpm_compatibility(
-    bpm1: float,
-    bpm2: float,
-    tolerance: float = 6.0
+async def _suggest_cue_points(
+    filename: str,
+    audio_path: str | None,
+    overwrite: bool,
 ) -> list[TextContent]:
-    """Calculate BPM compatibility between two tracks."""
-    ratio = bpm1 / bpm2
-    tolerance_decimal = tolerance / 100.0
+    """Calculate bar-snapped cue positions and write them to collection.nml."""
+    reader = get_nml_reader()
+    data = reader.get_track_data(filename)
 
-    # Check various ratios
-    compatible_1_1 = abs(ratio - 1.0) <= tolerance_decimal
-    compatible_2_1 = abs(ratio - 2.0) <= tolerance_decimal
-    compatible_1_2 = abs(ratio - 0.5) <= tolerance_decimal
+    if data is None:
+        return [TextContent(type="text", text=f"Track not found in collection.nml: {filename!r}")]
 
-    result = f"""BPM Compatibility Analysis
+    if not data["has_grid"]:
+        return [TextContent(type="text", text=(
+            f"Track {filename!r} has no beatgrid in Traktor.\n"
+            "Open Traktor, load the track, and analyse it first (tick the Analyse box)."
+        ))]
 
-Track 1 BPM: {bpm1:.1f}
-Track 2 BPM: {bpm2:.1f}
-Ratio: {ratio:.3f}
-Tolerance: ±{tolerance}%
+    track = TraktorTrack.from_nml_data(data)
 
-Compatibility:
-"""
+    # Optional librosa enhancement
+    if audio_path:
+        try:
+            logger.info(f"Loading librosa analysis for {filename}")
+            await asyncio.get_event_loop().run_in_executor(
+                None, track.load_librosa_analysis, audio_path
+            )
+        except Exception as e:
+            logger.warning(f"Librosa analysis failed, continuing NML-only: {e}")
 
-    if compatible_1_1:
-        result += f"  ✓ 1:1 mixing (direct beatmatch)\n"
-        result += f"    Tempo adjustment needed: {abs(bpm1 - bpm2):.1f} BPM\n"
+    # Calculate positions
+    positions = track.suggest_cue_positions()
 
-    if compatible_2_1:
-        result += f"  ✓ 2:1 mixing (halftime)\n"
-        result += f"    Track 1 plays at double-time relative to Track 2\n"
+    # Convert to cue specs (skip occupied unless overwrite)
+    specs = track.to_cue_specs(positions, overwrite=overwrite)
 
-    if compatible_1_2:
-        result += f"  ✓ 1:2 mixing (double-time)\n"
-        result += f"    Track 2 plays at double-time relative to Track 1\n"
+    result_lines = [
+        f"Cue Points: {filename}",
+        f"Source: {positions['source']}",
+        f"BPM: {track.bpm:.3f}  |  Anchor: {track.anchor_ms:.1f}ms  |  Duration: {track.duration_ms/1000:.1f}s",
+        "",
+        "Calculated positions (bar-snapped):",
+        f"  Slot 2  Beat:      {positions['beat_ms']/1000:.2f}s  ({_ms_to_mmss(positions['beat_ms'])})",
+        f"  Slot 3  Breakdown: {positions['breakdown_ms']/1000:.2f}s  ({_ms_to_mmss(positions['breakdown_ms'])})",
+        f"  Slot 4  Groove:    {positions['groove_ms']/1000:.2f}s  ({_ms_to_mmss(positions['groove_ms'])})  [loop {positions['groove_len_ms']/1000:.1f}s]",
+        f"  Slot 5  End:       {positions['end_ms']/1000:.2f}s  ({_ms_to_mmss(positions['end_ms'])})",
+        "",
+    ]
 
-    if not (compatible_1_1 or compatible_2_1 or compatible_1_2):
-        result += f"  ✗ Not compatible within {tolerance}% tolerance\n"
-        result += f"\nSuggestions:\n"
-        result += f"  - Adjust Track 2 to {bpm1:.1f} BPM for 1:1 mix\n"
-        result += f"  - Adjust Track 2 to {bpm1/2:.1f} BPM for 2:1 mix\n"
-        result += f"  - Adjust Track 2 to {bpm1*2:.1f} BPM for 1:2 mix\n"
+    for flag in positions["flags"]:
+        result_lines.append(f"  📋 {flag}")
 
-    return [TextContent(type="text", text=result)]
+    if not specs:
+        result_lines += [
+            "",
+            "⚠️  All slots already occupied — nothing written.",
+            "Use overwrite=true to replace existing cues in slots 2-5.",
+        ]
+        return [TextContent(type="text", text="\n".join(result_lines))]
 
+    # Write to NML
+    try:
+        write_result = reader.write_cues(filename, specs, overwrite=overwrite)
+        result_lines += [
+            "",
+            f"✅ Written to collection.nml (backup: {write_result['backup'].name}):",
+        ]
+        for line in write_result["written"]:
+            result_lines.append(f"   {line}")
+        if write_result["skipped"]:
+            result_lines.append("")
+            for line in write_result["skipped"]:
+                result_lines.append(f"   ⚠️  {line}")
+        result_lines.append("")
+        result_lines.append("⚠️  Restart Traktor to load the updated collection.")
+    except Exception as e:
+        result_lines += ["", f"❌ Failed to write to NML: {e}"]
+
+    return [TextContent(type="text", text="\n".join(result_lines))]
+
+
+async def _write_cue_points(
+    filename: str,
+    cue_points: list[dict],
+    overwrite: bool,
+) -> list[TextContent]:
+    """Write manually specified cue positions to collection.nml."""
+    reader = get_nml_reader()
+
+    # Validate track exists
+    if reader.get_track_data(filename) is None:
+        return [TextContent(type="text", text=f"Track not found in collection.nml: {filename!r}")]
+
+    # Map input to internal spec format
+    specs = []
+    for cp in cue_points:
+        specs.append({
+            "slot":     cp["slot"],
+            "name":     cp.get("name", "n.n."),
+            "start_ms": float(cp["time_ms"]),
+            "type":     int(cp.get("type", 0)),
+            "len_ms":   float(cp.get("len_ms", 0.0)),
+        })
+
+    try:
+        result = reader.write_cues(filename, specs, overwrite=overwrite)
+    except Exception as e:
+        return [TextContent(type="text", text=f"❌ Failed to write cues: {e}")]
+
+    lines = [f"Write Cue Points: {filename}", ""]
+    if result["written"]:
+        lines.append(f"✅ Written (backup: {result['backup'].name}):")
+        for line in result["written"]:
+            lines.append(f"   {line}")
+    if result["skipped"]:
+        lines.append("")
+        for line in result["skipped"]:
+            lines.append(f"   ⚠️  {line}")
+    if result["written"]:
+        lines += ["", "⚠️  Restart Traktor to load the updated collection."]
+
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+async def _suggest_transition(
+    filename1: str,
+    filename2: str,
+    blend_bars: int,
+) -> list[TextContent]:
+    """Suggest a transition between two tracks using Traktor NML data."""
+    reader = get_nml_reader()
+
+    data1 = reader.get_track_data(filename1)
+    data2 = reader.get_track_data(filename2)
+
+    missing = []
+    if data1 is None: missing.append(filename1)
+    if data2 is None: missing.append(filename2)
+    if missing:
+        return [TextContent(type="text", text=f"Not found in collection.nml: {', '.join(missing)}")]
+
+    bpm1 = data1.get("bpm")
+    bpm2 = data2.get("bpm")
+    key1 = data1.get("key_camelot")
+    key2 = data2.get("key_camelot")
+    dur1 = data1.get("duration_ms")
+    dur2 = data2.get("duration_ms")
+
+    lines = [
+        "Transition Analysis",
+        "=" * 50,
+        "",
+        f"Outgoing: {filename1}",
+        f"  BPM: {bpm1:.3f if bpm1 else 'unknown'}  |  Key: {key1 or 'unknown'} ({data1.get('key_name') or '—'})  |  Duration: {_ms_to_mmss(dur1) if dur1 else 'unknown'}",
+        "",
+        f"Incoming: {filename2}",
+        f"  BPM: {bpm2:.3f if bpm2 else 'unknown'}  |  Key: {key2 or 'unknown'} ({data2.get('key_name') or '—'})  |  Duration: {_ms_to_mmss(dur2) if dur2 else 'unknown'}",
+        "",
+    ]
+
+    # BPM compatibility
+    if bpm1 and bpm2:
+        ratio = bpm1 / bpm2
+        if 0.97 <= ratio <= 1.03:
+            bpm_verdict = f"✓ Direct beatmatch  (ratio {ratio:.3f})"
+            bpm_adj = f"Adjust by {abs(bpm1 - bpm2):.1f} BPM"
+        elif 1.94 <= ratio <= 2.06:
+            bpm_verdict = f"✓ 2:1 halftime mix  (ratio {ratio:.3f})"
+            bpm_adj = "Play incoming at double time"
+        elif 0.47 <= ratio <= 0.53:
+            bpm_verdict = f"✓ 1:2 double-time mix  (ratio {ratio:.3f})"
+            bpm_adj = "Play incoming at half time"
+        else:
+            bpm_verdict = f"✗ BPM mismatch  (ratio {ratio:.3f})"
+            bpm_adj = f"Pitch track 2 to {bpm1:.1f} BPM for 1:1 mix"
+        lines += [f"BPM:  {bpm_verdict}", f"      {bpm_adj}", ""]
+    else:
+        lines += ["BPM:  unknown — check Traktor analysis", ""]
+
+    # Key compatibility
+    key_compat, key_desc = camelot_compatible(key1 or "", key2 or "")
+    key_icon = "✓" if key_compat else "✗"
+    lines += [f"Key:  {key_icon} {key_desc}", ""]
+
+    # Transition timing
+    if bpm1 and dur1 and bpm2:
+        blend_ms = bars_to_ms(blend_bars, bpm1)
+        mixout_ms = dur1 - blend_ms
+        mixout_s = mixout_ms / 1000.0
+        blend_s = blend_ms / 1000.0
+
+        lines += [
+            f"Timing ({blend_bars}-bar blend at {bpm1:.1f} BPM = {blend_s:.0f}s):",
+            f"  Start blend at:   {_ms_to_mmss(mixout_ms)} into outgoing track",
+            f"  Incoming starts:  from beginning",
+            "",
+            "Suggested technique:",
+        ]
+
+        if key_compat and bpm1 and bpm2 and 0.97 <= bpm1/bpm2 <= 1.03:
+            lines += [
+                "  1. At blend start, bring incoming up under the outgoing bass",
+                f"  2. Over {blend_s/2:.0f}s: cut bass on outgoing, add bass on incoming",
+                "  3. Use mid-EQ swell to mask the transition",
+                "  4. Trim outgoing highs as incoming establishes",
+            ]
+        elif not key_compat:
+            lines += [
+                "  ⚠️  Keys are incompatible — consider a short blend or effects mask",
+                "  1. Use reverb/delay throw on outgoing before cut",
+                "  2. Drop to drums-only then bring in incoming",
+                "  3. Keep blend under 16 bars to reduce key clash",
+            ]
+        else:
+            lines += [
+                "  1. Match energy levels before blend (check gain/perceived dB)",
+                f"  2. Blend over {blend_s:.0f}s with gradual EQ swap",
+                "  3. Layer atmospheric elements during crossover",
+            ]
+
+        # Gain match advisory
+        p1 = data1.get("perceived_db")
+        p2 = data2.get("perceived_db")
+        if p1 is not None and p2 is not None:
+            gain_diff = abs(p1 - p2)
+            lines.append("")
+            if gain_diff > 3.0:
+                lines.append(f"  ⚠️  Loudness difference: {gain_diff:.1f} dB — adjust trim before blend")
+            else:
+                lines.append(f"  ✓ Loudness match: {gain_diff:.1f} dB difference (acceptable)")
+    else:
+        lines.append("Timing: BPM/duration missing — analyse tracks in Traktor first")
+
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+async def _analyze_library_track(filename: str, audio_path: str) -> list[TextContent]:
+    """Full analysis: Traktor NML data + librosa cross-check."""
+    reader = get_nml_reader()
+    data = reader.get_track_data(filename)
+
+    if data is None:
+        return [TextContent(type="text", text=f"Track not found in collection.nml: {filename!r}")]
+
+    track = TraktorTrack.from_nml_data(data)
+
+    # Run librosa
+    librosa_error = None
+    try:
+        await asyncio.get_event_loop().run_in_executor(
+            None, track.load_librosa_analysis, audio_path
+        )
+    except Exception as e:
+        librosa_error = str(e)
+
+    dur_s = track.duration_s or 0.0
+    lines = [
+        f"Full Analysis: {filename}",
+        "=" * 60,
+        "",
+        "── Traktor (collection.nml) ──────────────────────────────",
+        f"  BPM:       {track.bpm:.3f if track.bpm else 'unknown'}",
+        f"  Key:       {track.key_camelot or 'unknown'}  ({track.key_name or '—'})",
+        f"  Duration:  {int(dur_s//60)}:{dur_s%60:05.2f}",
+        f"  Beatgrid:  {'✓ present' if track.has_grid else '✗ missing'}",
+        f"  Anchor:    {f'{track.anchor_ms:.1f}ms' if track.anchor_ms else 'none'}",
+        f"  Peak dB:   {f'{track.peak_db:.2f}' if track.peak_db is not None else 'unknown'}",
+        f"  Perceived: {f'{track.perceived_db:.2f} dB' if track.perceived_db is not None else 'unknown'}",
+        "",
+    ]
+
+    if librosa_error:
+        lines += [
+            "── librosa ──────────────────────────────────────────────",
+            f"  ❌ Analysis failed: {librosa_error}",
+            "",
+        ]
+    else:
+        bpm_check = "✓ agree" if track.bpm_verified() else f"⚠️  mismatch (librosa: {track.librosa_bpm:.1f})"
+        lines += [
+            "── librosa ──────────────────────────────────────────────",
+            f"  BPM:       {track.librosa_bpm:.1f if track.librosa_bpm else 'unknown'}  {bpm_check}",
+            f"  Beats:     {len(track.beat_times) if track.beat_times else 0} detected",
+            f"  Breakdown: {f'{track.breakdown_ms/1000:.1f}s detected by energy analysis' if track.breakdown_ms else 'not detected'}",
+            "",
+        ]
+
+    if track.has_grid and track.bpm and track.librosa_loaded:
+        try:
+            positions = track.suggest_cue_positions()
+            lines += [
+                "── Suggested cue positions ───────────────────────────────",
+                f"  Slot 2  Beat:      {_ms_to_mmss(positions['beat_ms'])}",
+                f"  Slot 3  Breakdown: {_ms_to_mmss(positions['breakdown_ms'])}",
+                f"  Slot 4  Groove:    {_ms_to_mmss(positions['groove_ms'])}  [loop {positions['groove_len_ms']/1000:.0f}s]",
+                f"  Slot 5  End:       {_ms_to_mmss(positions['end_ms'])}",
+                f"  Source: {positions['source']}",
+                "",
+            ]
+            for flag in positions["flags"]:
+                lines.append(f"  📋 {flag}")
+        except Exception as e:
+            lines.append(f"  Cue calculation failed: {e}")
+
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+# ──────────────────────────────────────────────────────────────────────────── #
+# Utilities                                                                     #
+# ──────────────────────────────────────────────────────────────────────────── #
+
+def _ms_to_mmss(ms: float | None) -> str:
+    if ms is None:
+        return "unknown"
+    s = ms / 1000.0
+    mins = int(s // 60)
+    secs = s % 60
+    return f"{mins}:{secs:05.2f}"
+
+
+# ──────────────────────────────────────────────────────────────────────────── #
+# Entry point                                                                   #
+# ──────────────────────────────────────────────────────────────────────────── #
 
 async def main():
-    """Run the MCP server."""
-    logger.info("Starting AI DJ MCP Server...")
-
-    # Initialize cue detector
-    init_cue_detector()
-
-    # Run the server
+    logger.info("Starting AI DJ MCP Server v0.2.0 (Traktor-first)")
     from mcp.server.stdio import stdio_server
-
     async with stdio_server() as (read_stream, write_stream):
-        await app.run(
-            read_stream,
-            write_stream,
-            app.create_initialization_options()
-        )
+        await app.run(read_stream, write_stream, app.create_initialization_options())
 
 
 if __name__ == "__main__":

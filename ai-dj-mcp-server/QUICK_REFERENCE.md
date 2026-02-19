@@ -1,151 +1,123 @@
-# AI DJ MCP Server - Quick Reference
+# AI DJ MCP Server — Quick Reference
 
-Fast reference for using the AI DJ tools with Claude.
+## Tool summary
 
----
-
-## Installation (One-Time Setup)
-
-```bash
-cd ai-dj-mcp-server
-pip install -e .
-```
-
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "ai-dj": {
-      "command": "python3",
-      "args": ["-m", "ai_dj_mcp.server"],
-      "cwd": "/FULL/PATH/TO/ai-dj-mcp-server/src"
-    }
-  }
-}
-```
-
-Restart Claude Desktop.
+| Tool | When to use | Required params |
+|------|-------------|-----------------|
+| `get_track_info` | Check BPM, key, cues for a track | `filename` |
+| `suggest_cue_points` | Auto-calculate and write 4 cues | `filename` |
+| `suggest_cue_points` + audio | Same but with librosa breakdown detection | `filename`, `audio_path` |
+| `write_cue_points` | Write specific positions manually | `filename`, `cue_points[]` |
+| `suggest_transition` | Plan mix between two tracks | `filename1`, `filename2` |
+| `analyze_library_track` | Full NML + librosa analysis | `filename`, `audio_path` |
 
 ---
 
-## Quick Commands
+## Common prompts
 
-### Analyze a Track
+### Get track info (fast)
 ```
-Analyze the track at /path/to/track.wav
-```
-
-### Find Cue Points
-```
-Detect cue points for /path/to/track.wav
+Get track info for "Stimming - Una Pena.m4a"
 ```
 
-### Plan a Transition
+### Write cue points (NML only)
 ```
-Suggest transitions between /path/to/track1.wav and /path/to/track2.wav
-```
-
-### Check BPM Compatibility
-```
-Calculate BPM compatibility between 120 and 122
+Suggest cue points for "Stimming - Una Pena.m4a"
 ```
 
-### Extract Features
+### Write cue points (with librosa breakdown detection)
 ```
-Extract features from /path/to/track.wav
+Suggest cue points for "Stimming - Una Pena.m4a" using
+/Users/dantaylor/Music/Stimming - Una Pena.m4a
+```
+
+### Overwrite existing cues
+```
+Suggest cue points for "Stimming - Una Pena.m4a" and overwrite existing
+```
+
+### Plan a transition
+```
+Suggest transition from "Track A.m4a" to "Track B.m4a"
+```
+
+### Full deep analysis
+```
+Analyze "Stimming - Una Pena.m4a" at
+/Users/dantaylor/Music/Stimming - Una Pena.m4a
+```
+
+### Manually set a specific cue
+```
+Write a cue point for "Stimming - Una Pena.m4a":
+  slot 3, name "Breakdown", time 245100ms
 ```
 
 ---
 
-## Tool Reference
+## Cue slots
 
-| Tool | What It Does | Inputs |
-|------|--------------|--------|
-| `analyze_track` | BPM, beats, duration | audio_path |
-| `detect_cue_points` | AI cue point detection | audio_path, num_cues (12) |
-| `suggest_transitions` | Transition planning | track1_path, track2_path, blend_duration (60) |
-| `extract_features` | 24-D feature vectors | audio_path |
-| `calculate_bpm_compatibility` | BPM ratio check | bpm1, bpm2, tolerance (6%) |
+| Slot | Name | Position | Type |
+|------|------|----------|------|
+| 1 | (protected) | — | — |
+| 2 | Beat | ~10% | Hot cue |
+| 3 | Breakdown | ~65% (or detected) | Hot cue |
+| 4 | Groove | ~35% | 32-bar loop |
+| 5 | End | ~32 bars before end | Hot cue |
 
 ---
 
-## Common Workflows
+## Filename format
 
-### 1. Prepare Track for Traktor
-```
-Detect cue points for /Music/new-track.wav
-```
-→ Copy cue times to Traktor hot cues
+Always use the bare filename as stored in Traktor, not a full path or display title:
 
-### 2. Build a DJ Set
 ```
-Analyze these tracks and suggest mix order:
-- /Music/track1.wav
-- /Music/track2.wav
-- /Music/track3.wav
-```
-
-### 3. Check Track Compatibility
-```
-Calculate BPM compatibility between 118.5 and 122.3
+"Dreams.m4a"                        ✓
+"02 Dreams.m4a"                     ✓ (if that's how it's stored)
+"/Users/dantaylor/Music/Dreams.m4a" ✗ (full path — won't match)
+"Dreams"                            ✗ (no extension)
 ```
 
 ---
 
-## File Path Tips
+## After writing cues
 
-- Use **absolute paths** (not relative)
-- macOS example: `/Users/dantaylor/Music/track.wav`
-- Windows example: `C:\Users\Dan\Music\track.wav`
-- Drag & drop file into Terminal to get path
+**Restart Traktor** — it only reads collection.nml at startup.
+
+A backup is saved automatically at:
+```
+~/Documents/Native Instruments/Traktor 3.11.1/collection_backup_YYYYMMDD_HHMMSS.nml
+```
 
 ---
 
-## Supported Audio Formats
+## Camelot key compatibility
 
-✅ WAV, AIFF, MP3, FLAC
-❌ Streaming URLs (Spotify, SoundCloud)
+`suggest_transition` reports key compatibility using the Camelot wheel:
+- **Same key** — perfect match
+- **Same number, m↔d** — relative key (e.g. 8m ↔ 8d)
+- **Adjacent ±1 same mode** — energy shift mix
+- **Anything else** — incompatible (consider short blend or effects mask)
+
+---
+
+## BPM compatibility
+
+| Ratio | Result |
+|-------|--------|
+| 0.97–1.03 | Direct beatmatch |
+| 1.94–2.06 | 2:1 halftime |
+| 0.47–0.53 | 1:2 double-time |
+| Outside above | BPM mismatch |
 
 ---
 
 ## Troubleshooting
 
-| Problem | Solution |
-|---------|----------|
-| "Tool not found" | Restart Claude Desktop |
-| "File not found" | Use absolute path |
-| "Module not found" | Run `pip install -e .` |
-| Slow analysis | Normal for long tracks (5-10 min) |
-
----
-
-## Output Interpretation
-
-### BPM Detection
-- Compare with Traktor/Mixxx
-- ±1 BPM difference is normal
-- Re-analyze if >5 BPM off
-
-### Cue Points
-- Higher confidence = better cue
-- Use 0.8+ confidence cues
-- Verify aligned with music
-
-### Compatibility
-- ✓ = Can mix directly
-- ✗ = Needs tempo adjustment
-- Shows adjustment amount
-
----
-
-## Next Steps
-
-1. **Test:** Analyze 5 favorite tracks
-2. **Compare:** Match against your manual cues
-3. **Plan:** Build a 1-hour mix using transitions
-4. **Execute:** Load into Traktor/Mixxx
-
----
-
-**Questions?** See [USAGE_EXAMPLES.md](USAGE_EXAMPLES.md) for detailed examples.
+| Problem | Fix |
+|---------|-----|
+| Track not found | Check exact filename (grep collection.nml) |
+| No beatgrid | Analyse track in Traktor first |
+| Cues not showing in Traktor | Restart Traktor |
+| All slots occupied | Use `overwrite=true` |
+| librosa fails | Pass absolute audio path; check file exists |

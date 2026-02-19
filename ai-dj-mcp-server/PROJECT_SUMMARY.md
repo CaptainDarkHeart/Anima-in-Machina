@@ -1,330 +1,137 @@
-# AI DJ MCP Server - Project Summary
+# AI DJ MCP Server — Project Summary
 
-## What We Built
-
-A **Model Context Protocol (MCP) server** that provides AI-powered DJ mixing capabilities to Claude and other AI assistants. This server bridges the gap between AI analysis and professional DJ workflows.
+Version 0.2.0 — Traktor-first architecture
 
 ---
 
-## Architecture Overview
+## What it does
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Claude Desktop                        │
-│  (User interacts via natural language)                  │
-└────────────────────┬────────────────────────────────────┘
-                     │ MCP Protocol
-                     ↓
-┌─────────────────────────────────────────────────────────┐
-│               AI DJ MCP Server                          │
-│                                                         │
-│  Tools:                                                 │
-│  • analyze_track                                        │
-│  • detect_cue_points                                    │
-│  • suggest_transitions                                  │
-│  • extract_features                                     │
-│  • calculate_bpm_compatibility                          │
-└────────────────────┬────────────────────────────────────┘
-                     │
-          ┌──────────┴──────────┐
-          ↓                     ↓
-┌──────────────────┐  ┌──────────────────────┐
-│  Audio Analysis  │  │  Machine Learning    │
-│  • librosa       │  │  • PyTorch LSTM      │
-│  • Beat detection│  │  • Feature extraction│
-│  • BPM detection │  │  • Cue prediction    │
-└──────────────────┘  └──────────────────────┘
-```
+An MCP server that lets Claude read Traktor Pro 3 analysis data and write cue points directly to `collection.nml`. Traktor's own analysis (BPM, beatgrid, key, loudness) is the authoritative source; librosa is optional for energy-envelope breakdown detection.
 
 ---
 
-## Core Components
+## Architecture
 
-### 1. **Track Analysis Module** (`track.py`)
-- Loads and processes audio files (WAV, AIFF, MP3, FLAC)
-- Detects beats and downbeats using librosa
-- Calculates BPM (tempo)
-- Extracts 24-dimensional feature vectors:
-  - 13 MFCC coefficients
-  - 7 Spectral Contrast bands
-  - Spectral Centroid, Rolloff, Flux, RMS Energy
+```
+Claude ←─ MCP ─→ AI DJ MCP Server
+                        │
+               ┌────────┴────────────┐
+               ↓                     ↓
+        collection.nml          librosa (optional)
+        (PRIMARY source)        energy envelope,
+        BPM, beatgrid anchor,   breakdown detection,
+        Camelot key, loudness,  BPM cross-check
+        existing cues
+```
 
-### 2. **Cue Point Detector** (`cue_detector.py`)
-- LSTM neural network for intelligent cue point detection
-- Trained on musical features to identify optimal mix points
-- Suggests intro/outro markers for DJ mixing
-- Aligns cues to musical phrases (4-beat patterns)
-
-### 3. **MCP Server** (`server.py`)
-- Exposes 5 tools via Model Context Protocol
-- Handles async communication with Claude
-- Provides natural language interface to audio analysis
-- Returns formatted results with mixing recommendations
+**Key principle:** Never re-derive BPM from audio when Traktor's NML has it. Traktor's beatgrid anchor provides millisecond-precise bar boundaries; all cue positions snap to those boundaries.
 
 ---
 
-## Available Tools
+## Source modules
 
-### 1. `analyze_track`
-**Purpose:** Comprehensive audio analysis
-**Input:** Path to audio file
-**Output:** BPM, duration, beat times, downbeat times
-**Use case:** Quick track overview, verify Traktor analysis
+### `nml_reader.py`
+- Parses `collection.nml` using `xml.etree.ElementTree`
+- `NMLReader.find_entry(filename)` — deduplication logic (prefers gridded entries, then most recently modified)
+- `NMLReader.get_track_data(filename)` — returns BPM, anchor_ms, duration_ms, key_camelot, key_name, loudness, existing_cues, has_grid
+- `NMLReader.write_cues(filename, specs, overwrite)` — writes CUE_V2 elements, protects slot 1, auto-backups before write
+- `camelot_compatible(key1, key2)` — Camelot wheel compatibility (same, relative, adjacent ±1)
+- `CAMELOT_POSITIONS`, `KEY_NAMES` — lookup tables for all 24 Camelot positions
 
-### 2. `detect_cue_points`
-**Purpose:** AI-powered cue point detection
-**Input:** Audio path, number of cues, phrase alignment
-**Output:** Optimal cue points with confidence scores, intro/outro markers
-**Use case:** Find perfect mix points for 60-90 second blends
+### `traktor_track.py`
+- `TraktorTrack` dataclass — holds NML fields (primary) + librosa fields (secondary, populated on demand)
+- `TraktorTrack.from_nml_data(data)` — constructs from NMLReader dict
+- `TraktorTrack.load_librosa_analysis(audio_path)` — loads at 22050 Hz mono, computes RMS envelope, detects breakdown (lowest-energy 30s window in 40–80% zone)
+- `TraktorTrack.suggest_cue_positions()` — bar-arithmetic positions (Beat ~10%, Groove ~35%, Breakdown ~65% or detected, End ~32 bars before end), with sanity checks and flags
+- `TraktorTrack.to_cue_specs(positions, overwrite)` — converts to NMLReader.write_cues() format
+- `bars_to_ms(bars, bpm)`, `snap_to_bar(ms, bpm, anchor_ms)` — bar arithmetic helpers
 
-### 3. `suggest_transitions`
-**Purpose:** Plan transitions between two tracks
-**Input:** Two track paths, desired blend duration
-**Output:** BPM compatibility, transition timing, mixing strategy
-**Use case:** Plan your DJ set transitions
-
-### 4. `extract_features`
-**Purpose:** Extract ML features from audio
-**Input:** Audio path
-**Output:** 24-dimensional feature vectors at each beat
-**Use case:** Advanced analysis, training custom models
-
-### 5. `calculate_bpm_compatibility`
-**Purpose:** Check if two tracks can be mixed
-**Input:** Two BPM values, tolerance percentage
-**Output:** Compatibility report (1:1, 2:1, 1:2 ratios)
-**Use case:** Quick compatibility check without loading audio
+### `server.py`
+- MCP tool declarations and async implementations for all five tools
+- Shared `NMLReader` instance (lazy-loaded, cached)
+- librosa runs in executor thread to avoid blocking the async event loop
+- Error handling: tool errors return `TextContent` with error message, not exceptions
 
 ---
 
-## Technology Stack
+## Tools
 
-### Audio Processing
-- **librosa** - Feature extraction, beat detection
-- **soundfile** - Audio I/O (supports many formats)
-- **numpy/scipy** - Scientific computing
-
-### Machine Learning
-- **PyTorch** - LSTM neural network
-- **scikit-learn** - Feature normalization
-- **joblib** - Model persistence
-
-### MCP Integration
-- **mcp** - Model Context Protocol SDK
-- **asyncio** - Asynchronous server
+| Tool | Description |
+|------|-------------|
+| `get_track_info` | Read-only NML lookup — fast, no audio |
+| `suggest_cue_points` | Calculate bar-snapped cue positions + write to NML |
+| `write_cue_points` | Write manually specified positions to NML |
+| `suggest_transition` | BPM + Camelot key analysis + EQ strategy |
+| `analyze_library_track` | Full NML + librosa analysis (read-only) |
 
 ---
 
-## Integration Points
+## Cue slot layout
 
-### Traktor DJ Software
-```
-AI DJ MCP → Detect cue points → Manual import to Traktor
-                                  ↓
-                          Set hot cues using 6-color system
-                                  ↓
-                          Use in live DJ performance
-```
+| Slot | Name | Calculation | Type |
+|------|------|-------------|------|
+| 1 | — | Always protected | — |
+| 2 | Beat | `snap_to_bar(duration * 0.10)` | hot cue |
+| 3 | Breakdown | `snap_to_bar(duration * 0.65)` or librosa energy dip | hot cue |
+| 4 | Groove | `snap_to_bar(duration * 0.35)`, 32-bar loop | saved loop |
+| 5 | End | `snap_to_bar(duration - 32_bars)` | hot cue |
 
-### Mixxx DJ Software
-```
-AI DJ MCP → Analyze tracks → Export to Mixxx format
-                                  ↓
-                          Import intro/outro markers
-                                  ↓
-                          Use with AutoDJ or manual mixing
-```
-
-### Custom Workflows
-```
-AI DJ MCP → Extract features → Train custom models
-                                  ↓
-                          Build journey arc planners
-                                  ↓
-                          Create intelligent playlist generators
-```
+Bar arithmetic: `bar_ms = 4 × (60000 / bpm)`
 
 ---
 
-## Use Cases
+## NML safety rules
 
-### 1. Track Library Analysis
-Analyze your entire music collection to build a database of:
-- BPM values
-- Beat grids
-- Optimal cue points
-- Intro/outro markers
-
-### 2. Mix Planning
-Plan DJ sets by:
-- Checking BPM compatibility
-- Finding optimal transition points
-- Calculating blend durations
-- Building journey arcs
-
-### 3. DJ Workflow Enhancement
-Enhance Traktor/Mixxx workflows with:
-- AI-suggested cue points
-- Transition recommendations
-- Compatibility matrices
-- Energy curve analysis
-
-### 4. Machine Learning Research
-Use extracted features for:
-- Training custom cue detection models
-- Building genre classifiers
-- Creating energy level predictors
-- Developing similarity metrics
+- **Slot 1 is always protected** — never written or removed
+- **Auto-backup before every write** — timestamped `collection_backup_YYYYMMDD_HHMMSS.nml`
+- **CUE_V2 TYPE=4 (beatgrid anchor) is read-only** — never touched by the writer
+- **Default: skip occupied slots** — `overwrite=False` preserves existing cues; only write if user explicitly passes `overwrite=True`
+- **Restart Traktor after writes** — Traktor reads NML only at startup
 
 ---
 
-## File Structure
+## Dependencies
+
+| Package | Purpose |
+|---------|---------|
+| `mcp >= 1.0.0` | Model Context Protocol SDK |
+| `librosa >= 0.10.0` | Audio analysis (optional path) |
+| `soundfile >= 0.12.1` | Audio I/O for librosa |
+| `numpy >= 1.26.0` | Array arithmetic |
+| `scipy >= 1.11.0` | Rolling window convolution |
+
+No PyTorch. No LSTM. No trained models required.
+
+---
+
+## What was removed in v0.2
+
+The original v0.1 architecture used:
+- `track.py` — librosa beat/BPM detection as primary source
+- `cue_detector.py` — untrained PyTorch LSTM (produced random cue positions)
+- Tools: `analyze_track`, `detect_cue_points`, `extract_features`, `calculate_bpm_compatibility`
+
+All of these were replaced. Traktor's beatgrid is far more accurate than librosa BPM detection for music that has already been loaded and analysed in Traktor. The LSTM had no trained weights and was generating meaningless output.
+
+---
+
+## File structure
 
 ```
 ai-dj-mcp-server/
-├── pyproject.toml              # Python package configuration
-├── requirements.txt            # Dependency list
-├── README.md                   # Overview documentation
-├── INSTALLATION.md             # Setup guide
-├── USAGE_EXAMPLES.md           # Real-world examples
-├── PROJECT_SUMMARY.md          # This file
-├── test_track_analysis.py      # Test script
-│
+├── pyproject.toml          # Package config, v0.2.0, dependencies
+├── requirements.txt        # Flat dependency list
+├── README.md               # Overview, tool table, cue logic, quick install
+├── INSTALLATION.md         # Step-by-step setup and troubleshooting
+├── QUICK_REFERENCE.md      # Prompt examples, tables, cheat sheet
+├── USAGE_EXAMPLES.md       # Full worked examples with sample output
+├── PROJECT_SUMMARY.md      # This file — architecture and design notes
+├── test_track_analysis.py  # Manual test script
 └── src/
     └── ai_dj_mcp/
-        ├── __init__.py         # Package initialization
-        ├── __main__.py         # Entry point
-        ├── server.py           # MCP server (main)
-        ├── track.py            # Track analysis
-        └── cue_detector.py     # LSTM cue detection
+        ├── __init__.py     # Version string (0.2.0)
+        ├── __main__.py     # `python -m ai_dj_mcp` entry point
+        ├── nml_reader.py   # NML parsing, Camelot logic, cue writing
+        ├── traktor_track.py # TraktorTrack model, bar arithmetic, librosa
+        └── server.py       # MCP tool declarations and implementations
 ```
-
----
-
-## Installation Summary
-
-1. **Install dependencies:**
-   ```bash
-   pip install -e .
-   ```
-
-2. **Configure Claude Desktop:**
-   Add to `claude_desktop_config.json`:
-   ```json
-   {
-     "mcpServers": {
-       "ai-dj": {
-         "command": "python3",
-         "args": ["-m", "ai_dj_mcp.server"],
-         "cwd": "/absolute/path/to/ai-dj-mcp-server/src"
-       }
-     }
-   }
-   ```
-
-3. **Restart Claude Desktop**
-
-4. **Test:**
-   Ask Claude: "Analyze the track at /path/to/file.wav"
-
----
-
-## Current Limitations
-
-### 1. Model Training
-- Uses dummy LSTM model (not trained on real data)
-- For production use, train on genre-specific datasets
-- Current model is a placeholder for testing
-
-### 2. Beat Detection
-- Uses librosa (good but not perfect)
-- May struggle with complex rhythms or tempo changes
-- For best results, use tracks with clear beats
-
-### 3. Downbeat Detection
-- Simple heuristic (every 4th beat)
-- For better accuracy, integrate madmom library
-- Works well for 4/4 time signature music
-
-### 4. Audio Formats
-- Requires local audio files (no streaming)
-- No direct Spotify/SoundCloud integration
-- Must have files on disk
-
----
-
-## Future Enhancements
-
-### Short-term
-- [ ] Train LSTM on real DJ cue point data
-- [ ] Integrate madmom for better beat detection
-- [ ] Add key detection for harmonic mixing
-- [ ] Support batch processing of multiple tracks
-
-### Medium-term
-- [ ] Build playlist generator based on journey arcs
-- [ ] Add energy curve analysis
-- [ ] Create similarity search (find tracks like X)
-- [ ] Export directly to Traktor/Mixxx formats
-
-### Long-term
-- [ ] Real-time audio monitoring via MCP
-- [ ] Integration with streaming services
-- [ ] Automated mix generation
-- [ ] Live DJ performance mode
-
----
-
-## Performance Characteristics
-
-### Speed
-- **Track loading:** ~1-2 seconds (depends on file size)
-- **Beat detection:** ~3-5 seconds (6-minute track)
-- **Feature extraction:** ~2-3 seconds
-- **Cue prediction:** <1 second (LSTM inference)
-
-### Memory
-- **Base usage:** ~200MB (Python + libraries)
-- **Per track:** ~50-100MB (audio buffer)
-- **Model:** ~1MB (LSTM is lightweight)
-
-### Accuracy
-- **BPM detection:** 95%+ for clear beats
-- **Beat alignment:** ±50ms typical
-- **Cue points:** Depends on training data (currently random)
-
----
-
-## Credits
-
-Based on research and algorithms from:
-- **AI-DJ-Mix-Generator** - LSTM cue detection approach
-- **librosa** - Audio analysis library
-- **Model Context Protocol** - AI assistant integration
-- **Deep Space House Philosophy** - Your documented mixing approach
-
----
-
-## Next Steps
-
-1. **Test with your tracks** - Analyze some of your Traktor collection
-2. **Compare with manual cue points** - See how AI suggestions match your intuition
-3. **Build a track database** - Analyze your top 100 tracks
-4. **Plan a mix** - Use transition suggestions for a real DJ set
-5. **Train custom model** - Use your 11,000+ tracks to train a personalized LSTM
-
----
-
-## Support
-
-For questions or issues:
-- Review [INSTALLATION.md](INSTALLATION.md) for setup help
-- Check [USAGE_EXAMPLES.md](USAGE_EXAMPLES.md) for how-to guides
-- Run `python test_track_analysis.py <file.wav>` to test locally
-- Review Claude Desktop logs for debugging
-
----
-
-**The AI DJ MCP Server is ready to revolutionize your DJ workflow.** 🎧🚀
-
-Let Claude analyze your tracks, suggest transitions, and help you build the perfect deep space house journey.

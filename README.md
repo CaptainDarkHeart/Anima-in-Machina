@@ -4,9 +4,24 @@
 
 # Anima-in-Machina
 
-A comprehensive knowledge base for deep space house DJing, created through collaboration between a human DJ and AI. This repository contains detailed track analysis, mixing techniques, label guides, and technical workflows for crafting hypnotic, journey-focused DJ sets.
+A knowledge base and automation system for deep space house DJing, created through collaboration between a human DJ and AI. Contains detailed track analysis, mixing techniques, label guides, technical workflows, and working Python automation for Traktor Pro 3.
 
 > **[Read the full project context and background →](CONTEXT.md)**
+
+---
+
+## Repository Structure
+
+```
+Anima-in-Machina/
+├── docs/                        # Knowledge base (music, labels, techniques)
+├── ai-dj-mcp-server/            # MCP server — Claude reads/writes Traktor NML
+├── traktor-automation/          # Python MIDI automation for live performance
+├── track-selection-engine/      # Playlist generation tools and data
+└── analysis/                    # Stripes/transient analysis outputs
+```
+
+---
 
 ## What's Inside
 
@@ -35,51 +50,97 @@ A comprehensive knowledge base for deep space house DJing, created through colla
 - **[Tracklist Template](docs/templates/TRACKLIST_TEMPLATE.md)** - Standardized format for documenting DJ sets
 - **[Loop Library Template](docs/templates/LOOP_LIBRARY_TEMPLATE.md)** - Framework for cataloging loop-worthy sections
 
+---
+
+## AI DJ MCP Server (`ai-dj-mcp-server/`)
+
+An MCP server that lets Claude read Traktor's analysis and write cue points directly to `collection.nml`. Traktor's own beatgrid is the primary data source — no re-deriving BPM from audio.
+
+**Five tools:**
+
+| Tool | What it does |
+|------|-------------|
+| `get_track_info` | Read BPM, key, cues from NML — fast, no audio |
+| `suggest_cue_points` | Calculate bar-snapped Beat/Groove/Breakdown/End cues and write to NML |
+| `write_cue_points` | Write manually specified positions to NML |
+| `suggest_transition` | BPM + Camelot key compatibility and EQ strategy |
+| `analyze_library_track` | Full NML + librosa analysis (read-only) |
+
+**Example:** "Suggest cue points for 'Stimming - Una Pena.m4a'" → Claude calculates positions from Traktor's beatgrid, writes to `collection.nml`, reminds you to restart Traktor.
+
+See **[ai-dj-mcp-server/README.md](ai-dj-mcp-server/README.md)** for installation and full documentation.
+
+---
+
+## Traktor Automation (`traktor-automation/`)
+
+Python automation for live performance via IAC Driver MIDI. Runs the full mix — crossfades, EQ bass swaps, track loading — with coexistence support for X1 mk2 and Z1 hardware controllers.
+
+**Key files:**
+
+| File | Purpose |
+|------|---------|
+| `traktor_ai_dj.py` | Main controller: MIDI automation, crossfader, EQ bass swap, soft-takeover |
+| `intelligent_dj.py` | Subclass using structured mix plan data for intelligent transitions |
+| `deep_house_cue_writer.py` | CLI cue writer — NML-only, no audio analysis required |
+| `diagnose_nml.py` / `check_dir_entries.py` | NML inspection utilities |
+| `strip_old_cues.py` | Remove stripes-generated cues that clutter waveforms |
+
+**Z1 soft-takeover:** grabbing any Z1 EQ knob mid-transition pauses automation on that band only — everything else keeps moving.
+
+See **[traktor-automation/README.md](traktor-automation/README.md)** for the full MIDI CC table, setup instructions, and hardware guide.
+
+---
+
+## Track Selection Engine (`track-selection-engine/`)
+
+Playlist generation tools and data files for the Best of Deep Dub Tech House set.
+
+- `best-of-deep-dub-tech-house-ai-ordered.json` — AI-ordered 30-track playlist with full metadata
+- `best-of-deep-dub-tech-house-ai-ordered.m3u` — Traktor-importable playlist
+- Python scripts for custom playlist generation from the full library
+
+---
+
 ## Philosophy
 
 This knowledge base treats DJing as a craft that combines:
 
-- **Technical precision** - BPM management, harmonic mixing, and equipment mastery
-- **Artistic vision** - Journey arc design and emotional flow
-- **Deep musical understanding** - Label aesthetics, artist signatures, and genre evolution
-- **Performance preparation** - Systematic cue points, effects routing, and backup strategies
+- **Technical precision** — BPM management, harmonic mixing, and equipment mastery
+- **Artistic vision** — Journey arc design and emotional flow
+- **Deep musical understanding** — Label aesthetics, artist signatures, and genre evolution
+- **Performance preparation** — Systematic cue points, effects routing, and backup strategies
 
-The focus is on **deep space house**: patient, hypnotic electronic music that emphasizes:
-- Extended blends (60-90+ seconds)
-- Dub-influenced atmospheres
-- Gradual energy development
-- Textural layering over harmonic complexity
-- Journey-focused set structures
+The focus is on **deep space house**: patient, hypnotic electronic music that emphasises extended blends (60-90+ seconds), dub-influenced atmospheres, gradual energy development, and journey-focused set structures.
+
+---
 
 ## Key Features
 
 ### BPM Corrections & Verification
-The track analysis includes corrected BPM data verified against Beatport, fixing common half-time detection errors that make tracks unusable in mixes.
+Track analysis includes corrected BPM data verified against Beatport, fixing common half-time detection errors.
 
 ### Harmonic Mixing Strategies
-Detailed key relationships with specific mixing chains, showing how to create 90+ minute journeys in a single key or use relative keys for smooth transitions.
+Detailed key relationships with specific mixing chains for 90+ minute journeys.
 
 ### Effect Routing Systems
-Three-bank effect setups in Traktor with specific use cases: atmospheric blending, textural enhancement, and emergency utilities.
+Three-bank effect setups in Traktor with specific use cases: atmospheric blending, textural enhancement, emergency utilities.
 
 ### Color-Coded Cue Points
-A systematic approach using blue (load points), green (mix-in), yellow (structure), orange (loops), red (mix-out), and purple (creative) cue points.
+Blue (load), green (mix-in), yellow (structure), orange (loops), red (mix-out), purple (creative).
 
-### Pre-Planned Journey Arcs
-Multiple 2-hour set structures mapped out with exact track sequences, timestamps, transition strategies, and energy progression.
+### NML-First Cue Automation
+Cue positions are bar-snapped to Traktor's own beatgrid — accurate to the millisecond, no guessing from audio waveforms. Available both via the MCP server (Claude) and the standalone `deep_house_cue_writer.py` CLI.
+
+---
 
 ## How to Use This Repository
 
 ### For DJs
 1. Start with the [Label Guide](docs/dj-reference/LABEL_GUIDE.md) to understand the deep space house ecosystem
-2. Review the [Traktor Setup Guide](docs/technical/TRAKTOR_SETUP_GUIDE.md) to optimize your technical workflow
-3. Study the [Best of Deep Dub Tech House Analysis](docs/dj-reference/Best_of_Deep_Dub_Tech_House_FINAL.md) to see detailed track preparation in action
+2. Review the [Traktor Setup Guide](docs/technical/TRAKTOR_SETUP_GUIDE.md) to optimise your technical workflow
+3. Study the [Best of Deep Dub Tech House Analysis](docs/dj-reference/Best_of_Deep_Dub_Tech_House_FINAL.md) for detailed track preparation
 4. Use the [Transition Techniques](docs/dj-reference/TRANSITION_TECHNIQUES.md) to expand your mixing vocabulary
-
-### For Music Lovers
-- The track analysis demonstrates how to listen deeply to electronic music
-- The label guide provides entry points for exploring deep house and dub techno
-- The journey arcs show how to construct emotional narratives from abstract sounds
 
 ### For AI/ML Projects
 This dataset represents:
@@ -87,115 +148,61 @@ This dataset represents:
 - Relationship mapping (track compatibility, transition strategies)
 - Domain knowledge codification (label aesthetics, artist signatures)
 - Expert decision-making processes (set construction, track selection)
+- Working MCP server + Python automation as reference implementations
+
+---
 
 ## The Story Behind This Repository
 
-The title "Anima-in-Machina" references:
-- The collaborative nature of this knowledge base (human expertise + AI analysis)
-- The deep house classic "A Guy Called Gerald - Voodoo Ray" and its spiritual descendants
-- The idea that technology and humanity can create something greater together
-- The soul (anima) within the machine - where human artistry meets artificial intelligence
+The title "Anima-in-Machina" references the soul (anima) within the machine — where human artistry meets artificial intelligence.
 
-This project emerged from Claude.ai Project sessions where Dan, a DJ with an 11,000+ track collection focused on deep house, tech house, progressive, and dub techno, collaborated with Claude (Anthropic's AI) to:
+This project emerged from Claude.ai sessions where Dan, a DJ with an 11,000+ track collection focused on deep house, tech house, progressive, and dub techno, collaborated with Claude to:
 - Correct BPM detection errors in Traktor (half-time detection issues)
 - Map out complex harmonic relationships and key-based mixing chains
 - Document implicit mixing knowledge developed over years of performance
 - Create systematic preparation workflows for 165-200 minute journey sets
-- Optimize track selection from a vast library spanning labels like Lucidflow Records, Ethereal Sound, Minimalsoul, and Akbal Music
+- Build working automation: MIDI controller, cue writer, MCP server
 
-The knowledge base represents the intersection of:
-- **Human artistry**: Years of DJ experience, musical intuition, and performance expertise
-- **AI analysis**: Pattern recognition, metadata organization, and systematic documentation
-- **Collaborative synthesis**: Combining tacit knowledge with explicit frameworks
+---
 
-## Technical Details
+## Collection Stats (Best of Deep Dub Tech House)
 
-### Collection Stats (Best of Deep Dub Tech House)
-- **30 tracks** totaling 224 minutes (from an 11,000+ track library)
-- **BPM range:** 83-131 (with strategic outliers for ambient openings and peak moments)
+- **30 tracks** totalling 224 minutes (from an 11,000+ track library)
+- **BPM range:** 83-131
 - **Modal BPM:** 120 (6 tracks)
-- **Dominant key:** A Minor (9 tracks - 30% of collection)
+- **Dominant key:** A Minor (9 tracks — 30% of collection)
 - **Average duration:** 7:28 per track
-- **43% of tracks** exceed 8 minutes (extended mix opportunities)
-- **Journey length**: Designed for 165-200 minute sets (expanded from standard 120-minute format)
+- **43% of tracks** exceed 8 minutes
+- **Journey length**: Designed for 165-200 minute sets
 
-### Label Ecosystem
-Core labels covered in this knowledge base:
-- **Lucidflow Records** (Berlin) - Sophisticated deep house/dub techno hybrid
-- **Echocord** (Germany) - Pure dub techno specialist
-- **Styrax** (Germany) - Deep house with organic warmth
-- **Plastic City** - Classic deep house sophistication
-- **Smallville Records** - Jazz and soul-influenced deep house
-
-Additional labels in the broader collection:
-- **Ethereal Sound** - Cinematic atmospheres and emotional depth
-- **Minimalsoul** - Deep minimal house aesthetics
-- **Akbal Music** - Underground deep house and techno
-
-### Traktor Configuration
-- **Native Instruments controllers** integration
-- 3 effect banks with specific routing strategies
-- 6-color cue point system for track navigation
-- Loop management for 4-32 bar extensions
-- Smart playlist organization by energy, texture, and function
-- Recording and backup workflows
-- Keylock feature optimization for natural pitch adjustment
-- MIDI control and Python scripting exploration for workflow automation
-- Model Context Protocol (MCP) integration potential for enhanced automation
-
-### Automated Cue Point System
-- **[Stripes Analysis Documentation](traktor-automation/analysis-tools/docs/stripes-analysis.md)** - Deep dive into Traktor's stripes file format
-- **Librosa-based audio analysis** for beat detection, tempo analysis, and onset detection
-- **Stripes-based structural analysis** for breakdown, build-up, and drop detection
-- **Hybrid approach** combining both systems for intelligent cue point placement
-- **[Python automation scripts](traktor-automation/analysis-tools/scripts/)** for batch processing entire libraries
-
-## Contributing
-
-This is a living document. Contributions welcome for:
-- Additional track analyses
-- New transition techniques
-- Label additions
-- Traktor workflow improvements
-- Alternative software setups (Rekordbox, Serato, etc.)
+---
 
 ## License
 
-This work is shared under Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0).
+Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0).
 
-Feel free to use, adapt, and build upon this knowledge base. Attribution appreciated but not required.
+---
 
 ## Acknowledgments
 
 Created through collaboration between:
-- **Dan Taylor** - DJ, curator, deep space house enthusiast with 11,000+ track collection
-- **Claude (Anthropic)** - AI assistant for analysis, organization, and knowledge synthesis
+- **Dan Taylor** — DJ, curator, deep space house enthusiast with 11,000+ track collection
+- **Claude (Anthropic)** — AI assistant for analysis, organisation, and knowledge synthesis
 
-Special thanks to the artists and labels who create the music that makes these journeys possible:
-- **Core Artists**: Nadja Lind, The Timewriter, Helly Larson (frequent reference points)
-- **Featured in Analysis**: Riccicomoto (dominant artist - 4 tracks), Klartraum (3 tracks)
-- **Labels**: Lucidflow Records (Nadja Lind & Helmut Ebritsch), Ethereal Sound, Minimalsoul, Akbal Music
-- The entire deep house and dub techno community
-
-**Technical Resources**:
-- Native Instruments (Traktor DJ software and controllers)
-- Beatport (metadata verification and track sourcing)
-
-## Resources
-
-### Further Exploration
-- [Lucidflow Records](https://lucidflow.de) - Label website
-- [Juno Download](https://www.junodownload.com) - Deep house specialist
-- [Beatport](https://www.beatport.com) - Track information and BPM verification
-- [Discogs](https://www.discogs.com) - Label discographies
-
-### Related Reading
-- "Energy Flash" by Simon Reynolds - Electronic music history
-- "Last Night a DJ Saved My Life" by Bill Brewster & Frank Broughton - DJ culture history
-- Resident Advisor label features - Contemporary deep house scene
+Core artists in the analysis: Riccicomoto (4 tracks), Klartraum (3 tracks), Nadja Lind, The Timewriter.
+Core labels: Lucidflow Records, Echocord, Styrax, Plastic City, Smallville Records.
 
 ---
 
-**"The journey is the destination. The mix is the meditation. The beats are the breath."**
+## Resources
+
+- [Lucidflow Records](https://lucidflow.de)
+- [Juno Download](https://www.junodownload.com)
+- [Beatport](https://www.beatport.com)
+- [Discogs](https://www.discogs.com)
+
+---
+
+*"The journey is the destination. The mix is the meditation. The beats are the breath."*
 
 *Repository created February 2026*

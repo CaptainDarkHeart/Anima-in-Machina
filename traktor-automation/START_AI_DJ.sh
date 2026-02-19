@@ -2,7 +2,7 @@
 # Start AI DJ for Traktor
 # Make sure Traktor is running with your playlist loaded first!
 
-cd "/Users/dantaylor/Claude/Last Night an AI Saved My Life/traktor-automation"
+cd "/Users/dantaylor/Claude/Anima-in-Machina/traktor-automation"
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"

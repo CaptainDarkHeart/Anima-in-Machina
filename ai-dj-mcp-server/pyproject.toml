@@ -1,7 +1,7 @@
 [project]
 name = "ai-dj-mcp-server"
-version = "0.1.0"
-description = "MCP server for AI-powered DJ mixing with cue point detection, BPM analysis, and automated mix generation"
+version = "0.2.0"
+description = "MCP server for Traktor-first DJ tools — reads collection.nml as primary data source, librosa as optional enhancement"
 authors = [{name = "Dan Taylor"}]
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,10 +12,6 @@ dependencies = [
     "soundfile>=0.12.1",
     "numpy>=1.26.0",
     "scipy>=1.11.0",
-    "torch>=2.2.0",
-    "scikit-learn>=1.2.0",
-    "pydub>=0.25.1",
-    "joblib>=1.5.0",
 ]
 
 [project.optional-dependencies]
@@ -26,7 +22,7 @@ dev = [
 ]
 
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_backend"
 
 [tool.setuptools.packages.find]

@@ -1,419 +1,223 @@
-# 🎧 TRAKTOR AI DJ - Intelligent Mixing System
+# Traktor AI DJ — Automation System
 
-**Last Night an AI Saved My Life**
-
-Complete AI-controlled DJ automation for Traktor Pro 3 with **audio intelligence**, extended blends, beatmatching, and smart mixing decisions.
-
-## 🆕 NEW: Audio Intelligence & Cue Point System
-
-The AI DJ can now **"hear"** the music using Librosa audio analysis:
-
-- ✅ **Tempo detection**: Verify BPM from actual audio (85-95% accuracy)
-- ✅ **Beat tracking**: Find precise beat locations
-- ✅ **Energy analysis**: Measure track energy over time
-- ✅ **Harmonic analysis**: Detect musical key for compatible mixing
-- ✅ **Cue point detection**: Auto-find intro, outro, breakdown, build, drop
-- ✅ **Smart blending**: Dynamic blend duration based on track compatibility
-- ✅ **Mix point optimization**: Find best moments to mix in/out
-- ✅ **Traktor integration**: Write cue points directly to collection.nml
-- 🔄 **Learning mode**: Manual cue logging for ML training (in progress)
-
-### Important Note on Cue Points
-
-**Current status:** Automated cue detection works but isn't accurate enough for professional use.
-
-**Solution:** We're building a training dataset by recording expert DJ manual cue placements in `manual_cues_log.json`. This ground truth data will be used to train a better ML model that learns from real DJ expertise rather than energy algorithms.
-
-**Discovered:** Traktor has different timestamp formats for different folder entries:
-- "Best of Deep Dub Tech House" entries use milliseconds (× 1000)
-- Other entries use seconds
-- Manual placement works perfectly; automation needs human expertise to learn from
+Python automation for Traktor Pro 3 via IAC Driver MIDI, with hardware coexistence (X1 mk2 + Z1) and NML-based cue point writing.
 
 ---
 
-## 🚀 QUICK START
+## Architecture
 
-### 0. Install Dependencies
-```bash
-cd "/Users/dantaylor/Claude/Last Night an AI Saved My Life/traktor-automation"
-pip install -r requirements.txt
+```
+Python AI DJ ──MIDI CC──> IAC Driver Bus 1 ──> Traktor Pro 3
+                                                    ↑ ↓
+                               ┌────────────────────┴─┴────────────────────┐
+                               │                                            │
+                          X1 mk2 (USB, Native mode)              Z1 (USB, Native mode)
+                          deck control + LEDs                    crossfader + EQ + audio
 ```
 
-### 1. Test Audio Analysis (2-3 minutes)
-```bash
-# Analyze a single track
-python3 test_audio_analysis.py /path/to/track.mp3
-
-# Compare two tracks for compatibility
-python3 test_audio_analysis.py track1.mp3 track2.mp3
-```
-
-**Expected:** Audio analysis with BPM, key, energy, and cue points
-
-### 2. Test MIDI Connection (30 seconds)
-```bash
-python3 test_midi_connection.py
-```
-
-**Expected:** ✅ All tests pass
+All three can control Traktor simultaneously. The IAC Driver sends automation commands; the controllers provide manual override and full LED/audio feedback without conflicting.
 
 ---
 
-### 3. Configure Traktor MIDI Mapping (15-20 minutes)
-
-Open the detailed guide:
-```bash
-open TRAKTOR_MIDI_MAPPING_GUIDE.md
-```
-
-**Summary:** Create 18 MIDI mappings in Traktor that connect IAC Driver to Traktor controls.
-
----
-
-### 4. Import Playlist to Traktor (5 minutes)
-
-In Traktor:
-- **Browser** → Right-click → **Import Playlist**
-- Select: `../track-selection-engine/best-of-deep-dub-tech-house-ai-ordered.m3u`
-
----
-
-### 5. Run the AI DJ! (Instant + analysis time)
-```bash
-python3 traktor_ai_dj.py
-```
-
-**First run:** Analyzes all tracks (5-15 minutes for 30 tracks)
-**Subsequent runs:** Uses cache (instant)
-
-Watch Traktor perform your 2.5-hour deep space house set with intelligent mixing!
-
----
-
-## 📁 FILES
+## Core files
 
 | File | Purpose |
 |------|---------|
-| **traktor_ai_dj.py** | Main AI DJ controller with MIDI automation |
-| **audio_analyzer.py** | Librosa-based audio analysis engine 🆕 |
-| **traktor_nml_writer.py** | Traktor collection.nml cue point writer 🆕 |
-| **manual_cues_log.json** | Expert DJ cue placements (ground truth) 🆕 |
-| **test_audio_analysis.py** | Test/demo script for audio analysis 🆕 |
-| **test_nml_reader.py** | Inspect Traktor collection structure 🆕 |
-| **verify_playlist_cues.py** | Verify cue points in playlist tracks 🆕 |
-| **write_cues_traktor_format.py** | Batch write cues to tracks 🆕 |
-| **test_midi_connection.py** | Verify IAC Driver is working |
-| **requirements.txt** | Python dependencies 🆕 |
-| **AUDIO_ANALYSIS.md** | Deep dive into audio analysis system 🆕 |
-| **CUE_POINT_AUTOMATION.md** | Cue point system documentation 🆕 |
-| **TRAKTOR_MIDI_MAPPING_GUIDE.md** | Detailed Traktor setup instructions |
-| **SETUP_INSTRUCTIONS.md** | Complete setup guide with troubleshooting |
-| **README.md** | This file |
+| `traktor_ai_dj.py` | Main AI DJ controller — MIDI automation, crossfader, EQ bass swap, soft-takeover |
+| `intelligent_dj.py` | `IntelligentDJ` subclass — uses `MixPlanParser` for structured transition data |
+| `mix_plan_parser.py` | Parses text mix plan files into `TrackMixPlan` dataclasses |
+| `deep_house_cue_writer.py` | CLI script — writes Beat/Groove/Breakdown/End cues to collection.nml |
+| `check_dir_entries.py` | Inspect NML entries by directory substring |
+| `compare_cues.py` | Compare cue points across two NML entries for the same track |
+| `diagnose_nml.py` | Print raw XML of a track entry — useful for debugging NML issues |
+| `strip_old_cues.py` | Remove stripes-generated TYPE=0/HOTCUE=0 cues that clutter waveforms |
+| `manual_cues_log.json` | Ground-truth DJ cue placements (for reference/training) |
+| `data/lucidflow_mix_plan.txt` | Example mix plan file for `MixPlanParser` |
+| `mappings/AI_DJ_IAC_Working.tsi` | Confirmed-working Traktor MIDI mapping file |
+| `Traktor_AI_DJ_MIDI_Mapping.tsi` | Original mapping file (kept for reference) |
 
 ---
 
-## ⚙️ SYSTEM ARCHITECTURE
+## MIDI CC map (IAC Driver → Traktor)
 
-```
-┌─────────────────────────────────────────────────────────┐
-│  Track Selection Engine (Layer 3)                      │
-│  • Intelligently ordered 30-track playlist             │
-│  • Energy progression: E2 → E7 → E2                    │
-│  • JSON with metadata (BPM, energy, duration)          │
-└─────────────────┬───────────────────────────────────────┘
-                  │
-                  ▼
-┌─────────────────────────────────────────────────────────┐
-│  🆕 Audio Analyzer (Librosa)                           │
-│  • Detects actual BPM from audio                       │
-│  • Finds beats, energy, key                            │
-│  • Auto-detects cue points (intro/outro/breakdown)     │
-│  • Checks track compatibility                          │
-│  • Optimizes mix points                                │
-└─────────────────┬───────────────────────────────────────┘
-                  │
-                  ▼
-┌─────────────────────────────────────────────────────────┐
-│  Python AI DJ Controller (traktor_ai_dj.py)            │
-│  • Reads playlist JSON                                 │
-│  • Pre-analyzes all tracks                             │
-│  • Monitors playback position                          │
-│  • Calculates intelligent transitions                  │
-│  • Adjusts blend duration based on compatibility       │
-│  • Sends MIDI commands                                 │
-└─────────────────┬───────────────────────────────────────┘
-                  │ MIDI CC Messages
-                  ▼
-┌─────────────────────────────────────────────────────────┐
-│  IAC Driver (Virtual MIDI Port)                        │
-│  • macOS built-in MIDI loopback                        │
-│  • Connects Python ↔ Traktor                           │
-└─────────────────┬───────────────────────────────────────┘
-                  │
-                  ▼
-┌─────────────────────────────────────────────────────────┐
-│  Traktor Pro 3 MIDI Mapping                            │
-│  • Maps CC messages to Traktor functions              │
-│  • Controls: Play, Load, Sync, Crossfader             │
-│  • Feedback: Playback position, Playing state         │
-└─────────────────┬───────────────────────────────────────┘
-                  │
-                  ▼
-┌─────────────────────────────────────────────────────────┐
-│  Traktor Pro 3                                         │
-│  • Executes the mix                                    │
-│  • Outputs to your sound system                        │
-│  • Full control from AI with musical intelligence     │
-└─────────────────────────────────────────────────────────┘
-```
+### Deck control (Python → Traktor)
+
+| CC | Function |
+|----|----------|
+| 1 | Deck A Play/Pause |
+| 2 | Deck B Play/Pause |
+| 3 | Deck A Cue |
+| 4 | Deck B Cue |
+| 5 | Deck A Sync |
+| 6 | Deck B Sync |
+| 7 | Deck A Load Selected |
+| 8 | Deck B Load Selected |
+| 10 | Crossfader (0=left, 127=right) |
+| 20 | Browser Navigate Up |
+| 21 | Browser Navigate Down |
+| 30 | Deck A Tempo Reset |
+| 31 | Deck B Tempo Reset |
+
+### EQ / Mixer FX (Python → Traktor)
+
+| CC | Function |
+|----|----------|
+| 50 | Deck A EQ High |
+| 51 | Deck A EQ Mid |
+| 52 | Deck A EQ Low |
+| 53 | Deck B EQ High |
+| 54 | Deck B EQ Mid |
+| 55 | Deck B EQ Low |
+| 56 | Deck A Mixer FX Adjust |
+| 57 | Deck B Mixer FX Adjust |
+
+All EQ/filter values: 0 = full cut, 64 = 0 dB (centre), 127 = boost.
+
+### Feedback (Traktor → Python)
+
+| CC | Function |
+|----|----------|
+| 40 | Deck A Playback Position (0–127) |
+| 41 | Deck B Playback Position (0–127) |
+| 42 | Deck A Is Playing |
+| 43 | Deck B Is Playing |
 
 ---
 
-## 🎛️ MIDI MAPPING OVERVIEW
+## EQ bass swap
 
-### Input Commands (Python → Traktor)
-- **CC 1/2:** Play/Pause Deck A/B
-- **CC 3/4:** Cue Deck A/B
-- **CC 5/6:** Sync Deck A/B
-- **CC 7/8:** Load Selected Track to Deck A/B
-- **CC 10:** Crossfader Position (0-127)
-- **CC 20/21:** Browser Navigate Up/Down
-- **CC 30/31:** Tempo Reset Deck A/B
+`execute_eq_bass_swap(from_deck, to_deck, duration, style)` runs in a separate thread concurrent with `execute_crossfade()`. Two styles:
 
-### Output Feedback (Traktor → Python)
-- **CC 40/41:** Playback Position Deck A/B
-- **CC 42/43:** Is Playing Deck A/B
+- **`deep_house`** (default) — S-curve bass cut on outgoing (0–50%), then S-curve bass in on incoming (50–100%)
+- **`tech_house`** — faster cut (0–40%), earlier bring-in (30–80%)
+
+Z1 soft-takeover: if the Z1 sends a CC in the EQ range (50–57) while automation is running, that band pauses until the physical knob crosses back through the last commanded value.
 
 ---
 
-## 🎵 PLAYLIST DETAILS
+## Cue point writer (deep_house_cue_writer.py)
 
-**Name:** Best of Deep Dub Tech House (AI Ordered)
+Writes four cue points to `collection.nml` using Traktor's own BPM and beatgrid anchor. No audio analysis required.
 
-- **Tracks:** 30
-- **Duration:** 2 hours 29 minutes
-- **BPM Range:** 92-130
-- **Genre:** Deep Space House / Dub Techno
-
-### Energy Arc
-```
-E2 ━━━━━━━━━▶ E4 ━━━━━━━━━▶ E5 ━━━━━━━━━▶ E7 ━━━━━━━━━▶ E2
-Opening      Building       Core         Peak        Descent
-(1-5)        (6-10)         (11-20)      (21-27)     (28-30)
-```
-
----
-
-## 🔧 HOW IT WORKS
-
-### Automation Loop
-
-1. **Initialize:**
-   - Load Track 1 to Deck A
-   - Set crossfader left
-   - Start playback
-
-2. **Monitor (every 100ms):**
-   - Read playback position from Traktor
-   - Calculate time remaining
-
-3. **Trigger Transition (75s before end):**
-   - Load next track to Deck B
-   - Enable sync on Deck B
-   - Start playback on Deck B
-   - Execute 75-second crossfade
-   - Swap active/next deck
-
-4. **Repeat** for all 30 tracks
-
-### Extended Blend Timeline
-```
-Track 1 Playing [6:00 total]
-├─ 0:00-4:45 ▶ Solo play (Crossfader: Left)
-├─ 4:45 ────▶ TRIGGER (75s remaining)
-│  ├─ Load Track 2 to Deck B
-│  ├─ Sync Deck B to Deck A
-│  └─ Play Deck B
-├─ 4:45-6:00 ▶ Extended blend (Both playing, 75s)
-│  └─ Crossfader: Left → Right (smooth fade)
-└─ 6:00 ────▶ Track 1 ends, Track 2 continues
-
-Track 2 Playing [7:00 total]
-└─ Cycle continues...
-```
-
----
-
-## 🛠️ CONFIGURATION
-
-### Adjust Blend Duration
-
-Edit `traktor_ai_dj.py`, line 57:
-```python
-self.blend_duration = 75  # Change to 60-90 seconds
-```
-
-### Change Monitor Frequency
-
-Edit `traktor_ai_dj.py`, line 58:
-```python
-self.monitor_interval = 0.1  # 100ms (increase to reduce CPU usage)
-```
-
----
-
-## 🐛 TROUBLESHOOTING
-
-### Problem: MIDI connection fails
-
-**Solution:**
 ```bash
-# 1. Verify IAC Driver is online
-open -a "Audio MIDI Setup"
-# Window → Show MIDI Studio → IAC Driver → Device is online ✓
+# Dry run — preview without writing
+python3 deep_house_cue_writer.py --track "Nadja Lind - Spherical.m4a" --dry-run
 
-# 2. Test MIDI connection
+# Single track
+python3 deep_house_cue_writer.py --track "Nadja Lind - Spherical.m4a"
+
+# Full playlist
+python3 deep_house_cue_writer.py --playlist ../track-selection-engine/best-of-deep-dub-tech-house.json
+
+# Overwrite slots 2–5 (slot 1 always protected)
+python3 deep_house_cue_writer.py --playlist ... --overwrite
+```
+
+Cue layout:
+
+| Slot | Name | Position |
+|------|------|----------|
+| 1 | (protected) | never touched |
+| 2 | Beat | ~10% of track |
+| 3 | Breakdown | ~65% of track |
+| 4 | Groove | ~35%, 32-bar loop |
+| 5 | End | 32 bars before end |
+
+Note: `deep_house_cue_writer.py` uses `TYPE_LOOP = 4` internally. The MCP server's `nml_reader.py` uses `TYPE_LOOP = 5`. Both produce working loops in Traktor. The MCP server is the preferred path for new cue writing.
+
+Automatic backup: `collection_backup_YYYYMMDD_HHMMSS.nml` is created before any write.
+
+---
+
+## NML utility scripts
+
+```bash
+# Show all NML entries for a directory substring
+python3 check_dir_entries.py "Best of Deep Dub Tech House"
+
+# Compare cue points between two entries of the same track
+python3 compare_cues.py
+
+# Print raw XML of a track entry
+python3 diagnose_nml.py "Prof. Fee 2009 (Dub Taylor D. Mark Remix).m4a"
+
+# Strip stripes-generated cues (TYPE=0 HOTCUE=0) — dry run first
+python3 strip_old_cues.py --dry-run
+python3 strip_old_cues.py
+```
+
+---
+
+## Running the AI DJ
+
+### Prerequisites
+
+```bash
+pip install -r requirements.txt
+# mido, python-rtmidi, librosa, numpy, scipy, soundfile
+```
+
+Traktor must be open with the playlist loaded and IAC Driver Bus 1 enabled.
+
+### Quick start
+
+```bash
+# Verify IAC Driver + MIDI connections
 python3 test_midi_connection.py
 
-# 3. List available ports
-python3 -c "import mido; print(mido.get_output_names())"
+# Verify all three devices (IAC + X1 mk2 + Z1)
+python3 verify_all_three_devices.py
+
+# Run the full AI DJ
+python3 traktor_ai_dj.py
+
+# Or use the launch script
+./START_AI_DJ.sh
+```
+
+### Run with mix plan intelligence
+
+```bash
+python3 intelligent_dj.py
+# reads data/lucidflow_mix_plan.txt by default
 ```
 
 ---
 
-### Problem: Traktor not responding
+## Hardware setup
 
-**Check:**
-1. ✓ IAC Driver Bus 1 is selected in Traktor Controller Manager
-2. ✓ In-Port and Out-Port both set to IAC Driver Bus 1
-3. ✓ MIDI mappings are correctly configured
-4. ✓ Traktor is in focus/active window
+See `HARDWARE_MIDI_SETUP.md` for X1 mk2 + Z1 setup including:
+- How to put each controller into Native mode (vs MIDI mode)
+- Why Native mode is recommended (LEDs + audio interface stay active)
+- Button combinations for mode switching
 
----
-
-### Problem: Crossfader not smooth
-
-**Fix:**
-1. Traktor MIDI mapping for CC 10 (Crossfader)
-2. Set **Resolution:** Fine (256)
-3. Set **Interaction Mode:** Direct
-4. Disable **Soft Takeover**
+**MIDI mapping:** import `mappings/AI_DJ_IAC_Working.tsi` into Traktor. This is the confirmed-working TSI. See `TRAKTOR_MIDI_MAPPING_GUIDE.md` for the full mapping table and Traktor setup steps.
 
 ---
 
-### Problem: Playback position not updating
+## Troubleshooting
 
-**Check:**
-1. Output mappings (CC 40/41) are configured
-2. Out-Port is set to IAC Driver Bus 1
-3. Python script shows "Connected to input: IAC Driver Bus 1"
-
----
-
-## 📊 TESTING CHECKLIST
-
-Before running the full set:
-
-- [ ] IAC Driver is online
-- [ ] MIDI test passes: `python3 test_midi_connection.py`
-- [ ] Traktor MIDI mapping configured (18 total)
-- [ ] Playlist imported to Traktor
-- [ ] Tracks analyzed (BPM, beatgrid)
-- [ ] First track is highlighted in browser
-- [ ] Python script connects without errors
-- [ ] Manual test: Load track, play, crossfade
+| Problem | Fix |
+|---------|-----|
+| IAC Driver not found | Open Audio MIDI Setup → IAC Driver → Device is online |
+| Traktor not responding | Check Controller Manager: In-Port and Out-Port both = IAC Driver Bus 1 |
+| Browser up/down (CC 20/21) not working | Set mapping Interaction Mode to "Dec" not "Direct" |
+| Crossfader not smooth | Set Resolution to Fine (256), disable Soft Takeover in Traktor mapping |
+| EQ CC not working | Verify CCs 50–57 are mapped to EQ High/Mid/Low and Mixer FX Adjust |
+| Cues not appearing after write | Restart Traktor — it only reads NML at startup |
 
 ---
 
-## 🎯 SUCCESS CRITERIA
+## Documentation
 
-Your system is working when:
-
-1. ✅ Python script starts without errors
-2. ✅ Traktor loads Track 1 automatically
-3. ✅ Playback starts on Deck A
-4. ✅ At 75 seconds remaining, Track 2 loads to Deck B
-5. ✅ Smooth 75-second crossfade executes
-6. ✅ Track 2 continues playing after Track 1 ends
-7. ✅ Process repeats for all 30 tracks
-
----
-
-## 📈 PERFORMANCE SPECS
-
-- **MIDI Latency:** <10ms (IAC Driver is local)
-- **Position Update Rate:** 100ms
-- **Crossfade Precision:** 750 steps (10 per second)
-- **CPU Usage:** Minimal (<1% on modern Macs)
-- **Memory Usage:** ~50MB (Python + libraries)
-
----
-
-## 🚦 WHAT'S NEXT
-
-### Phase 1: Basic Automation ✅
-- [x] Python MIDI controller
-- [x] Playlist JSON
-- [x] Basic commands (Play, Load, Sync)
-- [x] Crossfader automation
-
-### Phase 2: Advanced Features (Future)
-- [ ] Cue point automation
-- [ ] EQ/Filter automation
-- [ ] FX sends
-- [ ] Loop detection
-- [ ] Visual feedback UI
-
-### Phase 3: AI Enhancement 🆕
-- [x] Real-time audio analysis (Librosa)
-- [x] Dynamic blend duration (30-90s based on compatibility)
-- [x] Harmonic mixing (key detection)
-- [x] Cue point detection (intro, breakdown, build, drop, outro)
-- [x] Energy-aware mixing
-- [x] Traktor NML file writing (collection.nml manipulation)
-- [x] Manual cue logging system for ML training
-- [ ] **IMPORTANT:** Automated cue placement needs improvement
-  - Current: Librosa energy-based detection is not accurate enough
-  - Solution: Collecting expert DJ manual cue placements as ground truth
-  - Goal: Train ML model on real DJ expertise, not algorithmic guesses
-- [ ] Real-time listening (analyze Traktor output)
-- [ ] Machine learning (learn from mixing history and manual cues)
-- [ ] Visual waveforms (audiowaveform integration)
-- [ ] Crowd response integration (via external sensors)
-
----
-
-## 💡 TIPS
-
-1. **Start with manual test:** Load first track manually, let AI take over from track 2
-2. **Watch the logs:** Python script shows every action in real-time
-3. **Monitor Traktor:** Keep Traktor visible to see the automation
-4. **Adjust as needed:** Pause script (Ctrl+C), tweak, restart
-
----
-
-## 🎤 CREDITS
-
-**System Design:** Dan Taylor & Claude (Anthropic)
-**Architecture:** 4-Layer Automated DJ System
-**Music Source:** `/Volumes/TRAKTOR/Traktor/Music/2026/Best of Deep Dub Tech House`
-**Genre:** Deep Space House / Dub Techno
-**Project Name:** Last Night an AI Saved My Life
-
----
-
-## 📝 LICENSE
-
-This automation system is for personal use with your legally owned music library.
-
----
-
-## 🆘 SUPPORT
-
-**Full Setup Guide:** `SETUP_INSTRUCTIONS.md`
-**MIDI Mapping Guide:** `TRAKTOR_MIDI_MAPPING_GUIDE.md`
-**Test Script:** `python3 test_midi_connection.py`
-
----
-
-**Ready to let AI save your night? Let's go! 🚀🎧**
+| File | Contents |
+|------|----------|
+| `TRAKTOR_MIDI_MAPPING_GUIDE.md` | Complete CC table, Traktor setup instructions |
+| `HARDWARE_MIDI_SETUP.md` | X1 mk2 + Z1 native mode setup, coexistence with IAC |
+| `INTELLIGENT_MIXING.md` | Mix plan format, `MixPlanParser` usage, transition data |
+| `CUE_POINT_AUTOMATION.md` | NML cue writing internals, TYPE values, safety rules |
+| `CUE_QUICK_START.md` | Three-step cue writing quickstart |
+| `SETUP_INSTRUCTIONS.md` | Full setup guide with troubleshooting |
+| `SUPER_XTREME_MAPPER_GUIDE.md` | Using Super Xtreme Mapper to edit TSI files visually |
+| `QUICK_REFERENCE.md` | Command cheat sheet |
+| `analysis-tools/NML_SAFETY_GUIDE.md` | NML safety rules — what never to delete |
